@@ -739,7 +739,13 @@ function fixChamberGeometry(chamber, label = "chamber") {
         fixes.push(`${label} H${h.num}: fromFoot ${h.fromFoot}″ → ${newFoot}″ (so fromTSH + fromFoot = ${round(L)}″)`);
         return { ...h, fromFoot: newFoot };
       }
-      return h;
+      // Still copy even when untouched — the overlap-clearance pass below
+      // mutates `.diameter` in place on whatever objects end up in `sorted`,
+      // and this array is built from `chamber.holes` (the caller's original,
+      // still-displayed geometry). Passing through the same reference here
+      // would let that mutation corrupt the caller's data instead of only
+      // the corrected copy this function returns.
+      return { ...h };
     });
     // 2) neighbouring holes must not physically overlap — shrink the larger
     //    of an overlapping pair down to the gap, floored at the min diameter.
@@ -1113,7 +1119,7 @@ function DrillingTemplate({ chambers, curve = "straight" }) {
       </defs>
 
       <text x={W/2} y="24" textAnchor="middle" fill="#f59e0b" fontSize="14" fontWeight="bold" fontFamily="system-ui">
-        {n > 1 ? `${n}-CHAMBER DRONE FLUTE` : "DRILLING TEMPLATE"} — DRILLING TEMPLATE
+        {n > 1 ? `${n}-CHAMBER DRONE FLUTE — DRILLING TEMPLATE` : "DRILLING TEMPLATE"}
         {isCurved ? " (CURVED ANTLER — MEASURE ALONG BORE CENTERLINE)" : ""}
       </text>
 
@@ -2438,6 +2444,13 @@ function Flute3DViewer({
         let raf = null;
         const animate = () => {
           raf = requestAnimationFrame(animate);
+          // FlutePage stays mounted (just display:none) behind the other
+          // tabs, so without this check this 3D preview would keep
+          // rendering at full rate forever once you'd ever looked at it.
+          // offsetParent is null exactly when a display:none ancestor is
+          // hiding the mount; keep the loop alive so it resumes instantly
+          // when this panel is shown again.
+          if (mount.offsetParent === null) return;
           controls.update();
           renderer.render(scene, camera);
           updateNestLabels();
@@ -2636,6 +2649,7 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
   const analyserRef = useRef(null);
   const rafRef      = useRef(null);
   const streamRef   = useRef(null);
+  const wrapRef     = useRef(null);
 
   const startListening = async () => {
     try {
@@ -2652,6 +2666,12 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
 
       const tick = () => {
         if (!analyserRef.current || !audioCtxRef.current) return;
+        // FlutePage/DudukPage stay mounted (display:none) when you switch
+        // tabs, so without this the mic would keep recording and this loop
+        // would keep running in a hidden tab indefinitely. Stop outright
+        // (not just pause) — leaving a mic live behind an invisible panel
+        // isn't something to keep doing quietly in the background.
+        if (wrapRef.current && wrapRef.current.offsetParent === null) { stopListening(); return; }
         const buf = new Float32Array(analyserRef.current.fftSize);
         analyserRef.current.getFloatTimeDomainData(buf);
         const pitch = autoCorrelatePitch(buf, audioCtxRef.current.sampleRate);
@@ -2691,7 +2711,7 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
   const clampC  = Math.max(-50, Math.min(50, detectedCents));
 
   return (
-    <div style={{background:"#1a1208",border:`2px solid ${inTune?"#4ade80":"#5a3a18"}`,borderRadius:12,padding:20,marginTop:14,transition:"border-color 0.3s"}}>
+    <div ref={wrapRef} style={{background:"#1a1208",border:`2px solid ${inTune?"#4ade80":"#5a3a18"}`,borderRadius:12,padding:20,marginTop:14,transition:"border-color 0.3s"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:18,color:"#f59e0b",fontWeight:700}}>🎤 Real-Time Tuner</div>
         <button onClick={onClose} style={{color:"#c4a97d",background:"transparent",border:"1px solid #6b5d4a",padding:"4px 14px",borderRadius:6,cursor:"pointer",fontSize:13}}>✕ Close</button>
@@ -3622,6 +3642,7 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
   const analyserRef = useRef(null);
   const rafRef      = useRef(null);
   const streamRef   = useRef(null);
+  const wrapRef     = useRef(null);
 
   const startListening = async () => {
     try {
@@ -3638,6 +3659,10 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
 
       const tick = () => {
         if (!analyserRef.current || !audioCtxRef.current) return;
+        // Same reasoning as RealTuner: FlutePage stays mounted behind other
+        // tabs, so a live mic here would otherwise keep recording forever
+        // in a hidden tab. Stop outright rather than just pausing.
+        if (wrapRef.current && wrapRef.current.offsetParent === null) { stopListening(); return; }
         const buf = new Float32Array(analyserRef.current.fftSize);
         analyserRef.current.getFloatTimeDomainData(buf);
         const pitch = autoCorrelatePitch(buf, audioCtxRef.current.sampleRate);
@@ -3686,7 +3711,7 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
   }
 
   return (
-    <div>
+    <div ref={wrapRef}>
       <div style={{fontSize:12,color:"#8a7255",lineHeight:1.6,marginBottom:14}}>
         Drill and test one step at a time, opening holes from the mouth end toward the foot (the smallest pitch jump first, largest last — matching standard NAF fingering). At each step, cover the holes shown, blow a steady breath, and compare against the expected pitch below before enlarging or moving to the next hole.
       </div>
@@ -5335,10 +5360,20 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     if (justLoadedRef.current) return; // a load just deliberately set an override (or cleared one)
     setErgoOverride(null);
   }, [bore, noteKey, rawLen, mode, holeCount, handSize, holeShape]);
-  // Runs after every render; clears the "just loaded" flag one tick later so
-  // both guard effects above can see it as true within the same load, but it
-  // doesn't linger and suppress a genuine subsequent user edit.
-  useEffect(() => { justLoadedRef.current = false; });
+  // Clears the "just loaded" flag once the two guard effects above have had
+  // a chance to see it — NOT on every render. The load itself lands in one
+  // commit (setting the ref, then scheduling the bore/noteKey/pipeMaterial/…
+  // state updates); the guard effects above only actually see the new values
+  // — and need to see the flag as true — on the LATER commit where those
+  // dependencies change. A no-deps effect fires on every commit, including
+  // that first one, clearing the flag a commit too early and leaving the
+  // real guard checks reading `false`, so a loaded ergonomic-adjustment
+  // override (or antler-shape pairing) was getting silently wiped out right
+  // after being restored. Matching this effect's deps to what those guards
+  // watch means it fires in the same later commit, after them (by
+  // declaration order), instead of before.
+  useEffect(() => { justLoadedRef.current = false; },
+    [pipeMaterial, bore, noteKey, rawLen, mode, holeCount, handSize, holeShape]);
 
   useEffect(() => {
     const r2 = bore / 2;
@@ -5375,8 +5410,13 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
   const totalLen  = melodyGeom.totalLen;
   const shW       = melodyGeom.shW;
   const shL       = melodyGeom.shL;
-  const holeSt   = fmt(Math.max(0.18, bore * 0.38), 3);
-  const holeMx   = fmt(bore * 0.57, 3);
+  // Derived straight from the actual computed holes (not a separate formula)
+  // so this summary always agrees with the diameters in the table below —
+  // it used to use its own unrelated bore*0.38/0.57 estimate, which drifted
+  // from the real holeDiam()-computed sizes shown per hole.
+  const holeDiamsIn = holes.map(h => parseFloat(h.diameter));
+  const holeSt   = fmt(holeDiamsIn.length ? Math.min(...holeDiamsIn) : 0, 3);
+  const holeMx   = fmt(holeDiamsIn.length ? Math.max(...holeDiamsIn) : 0, 3);
 
   // Per-drone calculations — each drone has its own bore + interval, all relative to melody root
   const droneResults = fluteStyle === "drone" ? drones.map((d, i) => {
@@ -5464,7 +5504,11 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     transition:"background 0.12s, border-color 0.12s",
   });
 
-  const showResults = L > 4;
+  // Matches BORE_HARD_MIN/MAX (and the "Enter a tube length between 5" and
+  // 52"" message shown below when this is false) — this used to cut off at
+  // 4", so a 4-5" length rendered a full results table the app considers
+  // out of its supported hard range everywhere else.
+  const showResults = L >= BORE_HARD_MIN && L <= BORE_HARD_MAX;
 
   // Effective nest values: an explicit override if one's been dialed in or
   // loaded, else the same bore-derived Flutopedia default this app has
@@ -6844,7 +6888,11 @@ function DudukPage({ loadConfig, onConfigLoaded }) {
     return tl >= 4 && tl <= 22;
   });
 
-  const showResults = L > 3;
+  // Matches validNotes' tl >= 4 && tl <= 22 range (and the "Enter a body
+  // length between 4" and 22"" message shown below when this is false) —
+  // this used to cut off at 3", rendering a full results table for a
+  // 3-4" length the rest of this page treats as out of range.
+  const showResults = L >= 4 && L <= 22;
 
   const bg0="#0a0805",bg1="#160f08",bg2="#201509";
   const border="#3a2a18",gold="#e8a33d",amber="#c9842a";
@@ -7513,10 +7561,17 @@ function keyLightPosition(center, distance, azimuthDeg, elevationDeg) {
   };
 }
 
-function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlocks, stockFlips = [], flipOverride = null, showRapids, showToolpath = true, materialColor, ambientIntensity, keyIntensity, keyAzimuth, keyElevation }) {
+function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlocks, stockFlips = [], flipOverride = null, showRapids, showToolpath = true, materialColor, ambientIntensity, keyIntensity, keyAzimuth, keyElevation, active = true }) {
   const mountRef = useRef(null);
   const sceneRef = useRef({});
   const bakedProgressRef = useRef(0);
+  // Mirrors `active` into a ref so the render loop (set up once below) can
+  // read it every frame without the scene-setup effect depending on it —
+  // GCodeViewerPage stays mounted across tab switches to preserve state, so
+  // this is what stops the renderer from burning GPU/CPU in the background
+  // whenever the G-Code tab (or its 3D panel) isn't the one on screen.
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
   const [isBuilding, setIsBuilding] = useState(true);
   const [buildError, setBuildError] = useState(null);
   const [isCarving, setIsCarving] = useState(false);
@@ -7702,6 +7757,11 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
     let lastT = performance.now();
     const animate = () => {
       rafId = requestAnimationFrame(animate);
+      // Hidden behind another tab (or the 2D-only layout) — skip the actual
+      // work and just keep the loop alive so it resumes instantly once
+      // this panel is visible again, instead of rendering into a
+      // display:none subtree forever.
+      if (!activeRef.current) return;
       const now = performance.now(), dt = Math.min(0.25, (now - lastT) / 1000);
       lastT = now;
       (sceneRef.current.hms || []).forEach(hm => {
@@ -7754,7 +7814,7 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
       sceneRef.current = {};
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(parsed.bounds), toolDiameter, tipShape]);
+  }, [parsed, toolDiameter, tipShape]);
 
   // --- (re)build the pristine, uncut stock — one block per blank on the table ---
   useEffect(() => {
@@ -8789,7 +8849,7 @@ function GCodeViewerPage({ initialProgram, active }) {
                 <div style={{ flex: 1, minWidth: 0, borderRight: layout === "split" ? "1px solid #1c242c" : "none" }}>
                   <Viewer3D parsed={parsed} progress={clampedProgress} toolDiameter={toolDiameter}
                     stockBlocks={stockBlocks} stockFlips={stockFlips} flipOverride={flipOverride} showRapids={showRapids} showToolpath={showToolpath} materialColor={materialColor} tipShape={tipShape}
-                    ambientIntensity={ambientIntensity} keyIntensity={keyIntensity} keyAzimuth={keyAzimuth} keyElevation={keyElevation} />
+                    ambientIntensity={ambientIntensity} keyIntensity={keyIntensity} keyAzimuth={keyAzimuth} keyElevation={keyElevation} active={active} />
                 </div>
               )}
               {(layout === "2d" || layout === "split") && (
@@ -9761,6 +9821,12 @@ class FlowStudioViewer {
   animate() {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(() => this.animate());
+    // FlowStudioPage stays mounted (just display:none) when you switch to
+    // another tab, so without this check the airflow sim + WebGL render
+    // would keep running at full rate forever in the background. offsetParent
+    // is null exactly when a display:none ancestor is hiding this container;
+    // the loop keeps ticking (cheap) so it resumes instantly when shown again.
+    if (this.container.offsetParent === null) return;
     const dt = Math.min(0.05, this.clock.getDelta());
     this.updateAirflowSimulation(dt);
     this.updateVectorField(performance.now() / 1000, dt);
