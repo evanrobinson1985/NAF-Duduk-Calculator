@@ -54,6 +54,7 @@ import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
 import com.nafduduk.calculator.pdf.savePdfAndShare
 import com.nafduduk.calculator.ui.tuner.TunerPanel
+import com.nafduduk.calculator.ui.viewer3d.Viewer3DPanel
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -130,6 +131,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var saveName by remember { mutableStateOf("") }
     var savedMsg by remember { mutableStateOf("") }
     var showTuner by remember { mutableStateOf(false) }
+    var show3dPreview by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -329,6 +331,23 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 ResultRow("SAC (slow-air chamber) length", fmtIn(geometry.sacLenIn))
                 ResultRow("Sound-hole width", fmtIn(geometry.soundHoleWidthIn))
                 ResultRow("Sound-hole length", fmtIn(geometry.soundHoleLengthIn))
+            }
+
+            SectionCard {
+                FieldLabel("3D Preview & Model Export")
+                Button(
+                    onClick = { show3dPreview = !show3dPreview },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (show3dPreview) "Hide 3D Preview" else "🧊 Show 3D Preview & Export") }
+                if (show3dPreview) {
+                    Column(modifier = Modifier.padding(top = 12.dp)) {
+                        Viewer3DPanel(
+                            geometry = geometry,
+                            fileBaseName = "naf_flute_${holeCount}hole_${noteKey.replace("#", "sharp")}",
+                        )
+                    }
+                }
             }
 
             SectionCard {

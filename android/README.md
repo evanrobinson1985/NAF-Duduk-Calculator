@@ -103,6 +103,34 @@ slice, not a stub.
   Harmony Builder drone presets — all ported 1:1 and wired into the Flute
   screen as toggleable panels.
 
+- **Multi-chamber (drone) support** (`engine/DroneChamber.kt`) —
+  `buildDroneResults` ported 1:1: up to 3 secondary chambers, each either a
+  fixed interval off the melody root or its own playable root note, run
+  through the same authoritative `buildChamberGeometry` as the melody
+  chamber, SAC/mouthpiece-margin equalized across chambers, playable-drone
+  holes aligned to the melody tube's finger positions. Wired into the Flute
+  screen's Single/Drone toggle and into PDF/G-code export.
+
+- **3D preview + mesh export** (`app/src/main/java/com/nafduduk/calculator/mesh/`,
+  `ui/viewer3d/`) — a from-scratch BSP-tree CSG engine (`Csg.kt`, the
+  Android equivalent of the web app's `three-bvh-csg`), a chamber mesh
+  builder (`ChamberMeshBuilder.kt`: hollow bore, finger holes, and a
+  simplified sound-hole/flue/ramp cut — see the caveat below), STL/OBJ/PLY/
+  glTF exporters, and an interactive Filament-based 3D view
+  (`Viewer3DView.kt`) with orbit/pan/zoom, embedded in the Flute screen.
+  **Two honest caveats, in order of how much they matter:**
+  1. The CSG engine and mesh math were hand-verified against the classic
+     BSP-CSG algorithm and by hand-deriving the polygon winding orders —
+     but never compiled or rendered, so treat the first real build+run as
+     the actual test, not this description.
+  2. The nest cut (sound hole/flue/ramp) is deliberately *not* the web
+     app's exact swept-bezier profile (see `buildChamberMesh()` in the
+     jsx) — it's a set of box/wedge CSG cuts at the same real dimensions
+     and position, chosen because replicating that profile's local-frame
+     bezier-curve precision was judged not worth the added, unverifiable
+     CSG risk. The split-block CNC strategy below has the same nest-
+     precision dependency and is deferred for the same reason.
+
 ## What's NOT ported yet
 
 - **The "split-block" CNC milling strategy**
@@ -110,23 +138,17 @@ slice, not a stub.
   "symmetric" and "nest-insert" variants) — cutting the full acoustic nest
   (ramp, flue, SAC, splitting edge) from two glued half-blanks on a mill,
   as opposed to drilling holes into an already-round tube. Deliberately
-  deferred: it's deeply coupled to the nest-override data model (flue
-  length/depth, ramp angle/curve, backset, wall thickness, breath-hole
-  geometry) that Task "Nest overrides..." below hasn't built yet, and its
+  deferred: it needs the exact nest-profile precision noted above, and its
   toolpath math (mouthpiece outline offsetting, alignment-pin planning,
-  ball-nose bore sweeps) is intricate enough that porting it ahead of that
-  data model risked either silently wrong toolpaths or a lot of rework.
-  Revisit once nest overrides + multi-chamber land.
+  ball-nose bore sweeps) is intricate enough that porting it without that
+  precision risked either silently wrong toolpaths or a lot of rework.
 - The G-Code viewer/toolpath simulator (2D/3D playback of a loaded
-  program) — a Three.js-scene feature, folded into the 3D viewer phase.
-- Multi-chamber (drone) support on the Flute page — currently single
-  melody chamber only. PDF/G-code export already accept multi-chamber
-  data (`drones: List<PdfDroneSummary>`, `chambers: List<GcodeChamber>`)
-  so this phase is mostly a UI + orchestration job, not new math.
+  program) — a Three.js-scene feature distinct from the chamber 3D preview
+  above.
 - Nest (SAC exit ramp/flue channel/TSH/fipple) override sliders on the
   Flute page itself (Flow Studio has its own independent nest-override
-  controls, already ported).
-- The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
+  controls, already ported, and the 3D preview's simplified nest cut uses
+  the same bore-derived auto formulas the Flute page does).
 
 These are tracked as separate phases — ask to continue any of them.
 
@@ -139,7 +161,9 @@ policy blocks that host (confirmed: `mavenCentral()` is reachable,
 `dl.google.com` returns a policy-denied 403 on every request). This is a
 network-policy limitation, not a missing-SDK one — installing the SDK
 locally wouldn't fix it, since Gradle dependency resolution would still be
-blocked.
+blocked. (The 3D preview's Filament dependencies happen to publish to
+`mavenCentral()`, not just Google's Maven, but that doesn't help here — AGP
+and AndroidX alone are enough to block every build in this sandbox.)
 
 To build:
 1. Open this `android/` folder in Android Studio (Hedgehog+) on a machine

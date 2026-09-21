@@ -60,6 +60,17 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    // 3D preview: Filament (Google's real-time PBR renderer) is the closest
+    // Android equivalent to the web app's Three.js viewer. filament-utils'
+    // ModelViewer + gltfio-android load and display a glTF scene with
+    // built-in orbit/pan/zoom gestures and a default IBL environment, so
+    // the app doesn't have to hand-roll a GL render loop or a custom
+    // material. All three publish to Maven Central (not just Google's
+    // Maven), version chosen to match compileSdk 34 / AGP 8.5.x.
+    implementation("com.google.android.filament:filament-android:1.51.5")
+    implementation("com.google.android.filament:filament-utils-android:1.51.5")
+    implementation("com.google.android.filament:gltfio-android:1.51.5")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
