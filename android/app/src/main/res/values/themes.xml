@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.NafDudukCalculator" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0F0A04</item>
+        <item name="android:windowBackground">#0F0A04</item>
+    </style>
+</resources>
