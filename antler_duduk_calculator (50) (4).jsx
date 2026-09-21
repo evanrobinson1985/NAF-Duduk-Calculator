@@ -31,6 +31,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Brush, Evaluator, SUBTRACTION, ADDITION, INTERSECTION } from "three-bvh-csg";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
+import { PLYExporter } from "three/examples/jsm/exporters/PLYExporter.js";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 // ═══════════════════════════════════════════════════════════════
@@ -38,39 +42,127 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 // ═══════════════════════════════════════════════════════════════
 const SPEED = 13504; // inches/sec at 68°F / 20°C
 
-const NOTES_440 = [
-  { name:"C3",  freq:130.81 }, { name:"C#3", freq:138.59 },
-  { name:"D3",  freq:146.83 }, { name:"Eb3", freq:155.56 },
-  { name:"E3",  freq:164.81 }, { name:"F3",  freq:174.61 },
-  { name:"F#3", freq:185.00 }, { name:"G3",  freq:196.00 },
-  { name:"Ab3", freq:207.65 }, { name:"A3",  freq:220.00 },
-  { name:"Bb3", freq:233.08 }, { name:"B3",  freq:246.94 },
-  { name:"C4",  freq:261.63 }, { name:"C#4", freq:277.18 },
-  { name:"D4",  freq:293.66 }, { name:"Eb4", freq:311.13 },
-  { name:"E4",  freq:329.63 }, { name:"F4",  freq:349.23 },
-  { name:"F#4", freq:369.99 }, { name:"G4",  freq:392.00 },
-  { name:"Ab4", freq:415.30 }, { name:"A4",  freq:440.00 },
-  { name:"Bb4", freq:466.16 }, { name:"B4",  freq:493.88 },
-  { name:"C5",  freq:523.25 }, { name:"C#5", freq:554.37 },
-  { name:"D5",  freq:587.33 }, { name:"Eb5", freq:622.25 },
-  { name:"E5",  freq:659.25 }, { name:"F5",  freq:698.46 },
+// Every note from C0 to E8 (101 total), from the Native American Flute
+// Database. "advanced" marks anything OUTSIDE the practical hand-held
+// melody-flute range (octaves 3–5 through F) — those are the same 30 notes
+// this app has always offered by default (Baritone/Tenor/most of Alto);
+// everything else (huge sub-bass/contrabass/bass drones, or tiny
+// soprano/sopranino/ultra piccolos) is real data but impractical for a
+// one-piece melody flute, so it's opt-in via the Advanced section rather
+// than cluttering the main key picker. Spelling matches the app's existing
+// convention (C#/F# sharps, Eb/Ab/Bb flats) and the sample filenames below.
+const ALL_NOTES = [
+  { name:"C0", freq:16.352, family:"Sub-bass", advanced:true },
+  { name:"C#0", freq:17.324, family:"Sub-bass", advanced:true },
+  { name:"D0", freq:18.354, family:"Sub-bass", advanced:true },
+  { name:"Eb0", freq:19.445, family:"Sub-bass", advanced:true },
+  { name:"E0", freq:20.602, family:"Sub-bass", advanced:true },
+  { name:"F0", freq:21.827, family:"Sub-bass", advanced:true },
+  { name:"F#0", freq:23.125, family:"Sub-bass", advanced:true },
+  { name:"G0", freq:24.5, family:"Sub-bass", advanced:true },
+  { name:"Ab0", freq:25.957, family:"Sub-bass", advanced:true },
+  { name:"A0", freq:27.5, family:"Sub-bass", advanced:true },
+  { name:"Bb0", freq:29.135, family:"Sub-bass", advanced:true },
+  { name:"B0", freq:30.868, family:"Sub-bass", advanced:true },
+  { name:"C1", freq:32.703, family:"Contrabass", advanced:true },
+  { name:"C#1", freq:34.648, family:"Contrabass", advanced:true },
+  { name:"D1", freq:36.708, family:"Contrabass", advanced:true },
+  { name:"Eb1", freq:38.891, family:"Contrabass", advanced:true },
+  { name:"E1", freq:41.203, family:"Contrabass", advanced:true },
+  { name:"F1", freq:43.654, family:"Contrabass", advanced:true },
+  { name:"F#1", freq:46.249, family:"Contrabass", advanced:true },
+  { name:"G1", freq:48.999, family:"Contrabass", advanced:true },
+  { name:"Ab1", freq:51.913, family:"Contrabass", advanced:true },
+  { name:"A1", freq:55.0, family:"Contrabass", advanced:true },
+  { name:"Bb1", freq:58.27, family:"Contrabass", advanced:true },
+  { name:"B1", freq:61.735, family:"Contrabass", advanced:true },
+  { name:"C2", freq:65.406, family:"Bass", advanced:true },
+  { name:"C#2", freq:69.296, family:"Bass", advanced:true },
+  { name:"D2", freq:73.416, family:"Bass", advanced:true },
+  { name:"Eb2", freq:77.782, family:"Bass", advanced:true },
+  { name:"E2", freq:82.407, family:"Bass", advanced:true },
+  { name:"F2", freq:87.307, family:"Bass", advanced:true },
+  { name:"F#2", freq:92.499, family:"Bass", advanced:true },
+  { name:"G2", freq:97.999, family:"Bass", advanced:true },
+  { name:"Ab2", freq:103.826, family:"Bass", advanced:true },
+  { name:"A2", freq:110.0, family:"Bass", advanced:true },
+  { name:"Bb2", freq:116.541, family:"Bass", advanced:true },
+  { name:"B2", freq:123.471, family:"Bass", advanced:true },
+  { name:"C3",  freq:130.81, family:"Baritone", advanced:false }, { name:"C#3", freq:138.59, family:"Baritone", advanced:false },
+  { name:"D3",  freq:146.83, family:"Baritone", advanced:false }, { name:"Eb3", freq:155.56, family:"Baritone", advanced:false },
+  { name:"E3",  freq:164.81, family:"Baritone", advanced:false }, { name:"F3",  freq:174.61, family:"Baritone", advanced:false },
+  { name:"F#3", freq:185.00, family:"Baritone", advanced:false }, { name:"G3",  freq:196.00, family:"Baritone", advanced:false },
+  { name:"Ab3", freq:207.65, family:"Baritone", advanced:false }, { name:"A3",  freq:220.00, family:"Baritone", advanced:false },
+  { name:"Bb3", freq:233.08, family:"Baritone", advanced:false }, { name:"B3",  freq:246.94, family:"Baritone", advanced:false },
+  { name:"C4",  freq:261.63, family:"Tenor", advanced:false }, { name:"C#4", freq:277.18, family:"Tenor", advanced:false },
+  { name:"D4",  freq:293.66, family:"Tenor", advanced:false }, { name:"Eb4", freq:311.13, family:"Tenor", advanced:false },
+  { name:"E4",  freq:329.63, family:"Tenor", advanced:false }, { name:"F4",  freq:349.23, family:"Tenor", advanced:false },
+  { name:"F#4", freq:369.99, family:"Tenor", advanced:false }, { name:"G4",  freq:392.00, family:"Tenor", advanced:false },
+  { name:"Ab4", freq:415.30, family:"Tenor", advanced:false }, { name:"A4",  freq:440.00, family:"Tenor", advanced:false },
+  { name:"Bb4", freq:466.16, family:"Tenor", advanced:false }, { name:"B4",  freq:493.88, family:"Tenor", advanced:false },
+  { name:"C5",  freq:523.25, family:"Alto", advanced:false }, { name:"C#5", freq:554.37, family:"Alto", advanced:false },
+  { name:"D5",  freq:587.33, family:"Alto", advanced:false }, { name:"Eb5", freq:622.25, family:"Alto", advanced:false },
+  { name:"E5",  freq:659.25, family:"Alto", advanced:false }, { name:"F5",  freq:698.46, family:"Alto", advanced:false },
+  { name:"F#5", freq:739.989, family:"Alto", advanced:true },
+  { name:"G5", freq:783.991, family:"Alto", advanced:true },
+  { name:"Ab5", freq:830.609, family:"Alto", advanced:true },
+  { name:"A5", freq:880.0, family:"Alto", advanced:true },
+  { name:"Bb5", freq:932.328, family:"Alto", advanced:true },
+  { name:"B5", freq:987.767, family:"Alto", advanced:true },
+  { name:"C6", freq:1046.502, family:"Soprano", advanced:true },
+  { name:"C#6", freq:1108.731, family:"Soprano", advanced:true },
+  { name:"D6", freq:1174.659, family:"Soprano", advanced:true },
+  { name:"Eb6", freq:1244.508, family:"Soprano", advanced:true },
+  { name:"E6", freq:1318.51, family:"Soprano", advanced:true },
+  { name:"F6", freq:1396.913, family:"Soprano", advanced:true },
+  { name:"F#6", freq:1479.978, family:"Soprano", advanced:true },
+  { name:"G6", freq:1567.982, family:"Soprano", advanced:true },
+  { name:"Ab6", freq:1661.219, family:"Soprano", advanced:true },
+  { name:"A6", freq:1760.0, family:"Soprano", advanced:true },
+  { name:"Bb6", freq:1864.655, family:"Soprano", advanced:true },
+  { name:"B6", freq:1975.533, family:"Soprano", advanced:true },
+  { name:"C7", freq:2093.005, family:"Sopranino", advanced:true },
+  { name:"C#7", freq:2217.461, family:"Sopranino", advanced:true },
+  { name:"D7", freq:2349.318, family:"Sopranino", advanced:true },
+  { name:"Eb7", freq:2489.016, family:"Sopranino", advanced:true },
+  { name:"E7", freq:2637.02, family:"Sopranino", advanced:true },
+  { name:"F7", freq:2793.826, family:"Sopranino", advanced:true },
+  { name:"F#7", freq:2959.955, family:"Sopranino", advanced:true },
+  { name:"G7", freq:3135.963, family:"Sopranino", advanced:true },
+  { name:"Ab7", freq:3322.438, family:"Sopranino", advanced:true },
+  { name:"A7", freq:3520.0, family:"Sopranino", advanced:true },
+  { name:"Bb7", freq:3729.31, family:"Sopranino", advanced:true },
+  { name:"B7", freq:3951.066, family:"Sopranino", advanced:true },
+  { name:"C8", freq:4186.009, family:"Ultra", advanced:true },
+  { name:"C#8", freq:4434.922, family:"Ultra", advanced:true },
+  { name:"D8", freq:4698.636, family:"Ultra", advanced:true },
+  { name:"Eb8", freq:4978.032, family:"Ultra", advanced:true },
+  { name:"E8", freq:5274.041, family:"Ultra", advanced:true },
 ];
+// Kept for anything that still refers to the old name — identical values,
+// just the pre-expansion identifier.
+const NOTES_440 = ALL_NOTES;
 
 function getNotes(a4) {
   const ratio = a4 / 440;
-  return NOTES_440.map(n => ({ name: n.name, freq: n.freq * ratio }));
+  return ALL_NOTES.map(n => ({ name: n.name, freq: n.freq * ratio, family: n.family, advanced: n.advanced }));
 }
+// Ordered list of family names exactly as they appear from Sub-bass to
+// Ultra, for grouping the Advanced section in that same low-to-high order.
+const NOTE_FAMILIES_ORDER = ["Sub-bass","Contrabass","Bass","Baritone","Tenor","Alto","Soprano","Sopranino","Ultra"];
 
 // ═══════════════════════════════════════════════════════════════
 //  NOTE AUDIO SAMPLES
-//  Maps every selectable note (D3–F5, matching NOTES_440 above) to its
-//  sample filename. Files live in a "samples" folder next to this HTML
-//  file (./samples/<filename>). Not all samples need to exist yet —
-//  missing files simply fail to play silently (a warning is logged to
-//  the console) so the app keeps working as more samples are added.
-//  To add a new sample, just drop the file into the samples folder —
-//  if the filename matches the table below it will work immediately.
-//  No code changes needed unless the note range (NOTES_440) changes.
+//  Maps the ORIGINAL standard 30-note range (C3–F5) to its sample
+//  filename — this app's practical default key range, still the only one
+//  with recorded samples. Every other note in ALL_NOTES (the full 101-note
+//  database, shown behind the "Advanced" toggle) has no sample, which is
+//  fine: playNoteSample() already fails silently and just logs a warning
+//  when a name has no entry here, so preview simply stays off for those.
+//  Files live in a "samples" folder next to this HTML file
+//  (./samples/<filename>). To add a sample for a new note, add its
+//  filename below and drop the file into the samples folder — no other
+//  code changes needed.
 // ═══════════════════════════════════════════════════════════════
 const NOTE_SAMPLES = {
   "C3":  "Low C3.mp3",
@@ -139,6 +231,104 @@ function playNoteSample(noteName) {
     console.warn(`[note sample] Error playing sample for "${noteName}".`, err);
     _currentNoteAudio = null;
   }
+}
+
+// ── SOUND SAMPLE CREDITS (required attribution) ──────────────────────
+// The note samples are Clint Goss's Native American flute recordings from
+// Flutopedia, used under the CC BY 4.0 license. That license requires
+// three things: credit the creator, link to the license, and state
+// whether the material was modified. This expandable in-app credits
+// panel carries all three, and it sits directly beside every control
+// that plays the samples (flute AND duduk key pickers).
+function SoundCredits() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button onClick={() => setOpen(v => !v)} style={{
+        background: "none", border: "none", padding: 0, cursor: "pointer",
+        fontSize: 10.5, color: "#8a7255", textDecoration: "underline",
+      }}>
+        🎵 Sound sample credits {open ? "▾" : "▸"}
+      </button>
+      {open && (
+        <div style={{
+          marginTop: 6, fontSize: 11, lineHeight: 1.65, color: "#b8a488",
+          background: "#1a1005", border: "1px solid #3a2a14", borderRadius: 8, padding: "10px 12px",
+        }}>
+          <div style={{ fontWeight: 800, color: "#e5d5b8", marginBottom: 4, fontSize: 11.5 }}>Attributions / Credits</div>
+          The note samples played by the key pickers are Native American flute recordings
+          by <strong style={{ color: "#e5d5b8" }}>Clint Goss</strong> — <a
+            href="https://www.flutopedia.com" target="_blank" rel="noopener noreferrer"
+            style={{ color: "#7dd3fc" }}>Flutopedia.com</a>.
+          <br/>Licensed under the Creative Commons Attribution 4.0 International license (<a
+            href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer"
+            style={{ color: "#7dd3fc" }}>CC BY 4.0</a>).
+          <br/>The sounds are used as-is — no modifications of any kind were made to the recordings.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shared by every root-note picker (melody flute, duduk, per-chamber drone
+// key): the practical 30-note range (Baritone/Tenor/most of Alto — this
+// app's original, curated default) always shows as a flat pill row; the
+// other 71 notes from the full Native American Flute Database — real
+// pitches, but outside typical hand-held melody-flute proportions — sit
+// behind a collapsed "Advanced" toggle, grouped by family so 71 notes
+// don't read as one undifferentiated wall of buttons.
+function NoteKeyPicker({ notes, value, onSelect, isOk, pill, playSamples }) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const standard = notes.filter(n => !n.advanced);
+  const advanced = notes.filter(n => n.advanced);
+  const byFamily = {};
+  advanced.forEach(n => { (byFamily[n.family] = byFamily[n.family] || []).push(n); });
+
+  const renderPill = (n) => {
+    const ok = isOk(n);
+    return (
+      <button key={n.name} onClick={() => { if (!ok) return; onSelect(n.name); if (playSamples) playNoteSample(n.name); }}
+        style={{ ...pill(value === n.name), opacity: ok ? 1 : 0.28, cursor: ok ? "pointer" : "not-allowed", padding: "5px 10px", fontSize: 12 }}>
+        {n.name}
+      </button>
+    );
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {standard.map(renderPill)}
+      </div>
+      {advanced.length > 0 && (
+        <>
+          <button onClick={() => setShowAdvanced(s => !s)} style={{
+            marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontSize: 10.5, color: "#8a7255", textDecoration: "underline", display: "block",
+          }}>
+            {showAdvanced ? "▾" : "▸"} Advanced — {advanced.length} non-standard keys (sub-bass to ultra-high)
+          </button>
+          {showAdvanced && (
+            <div style={{ marginTop: 6, padding: "10px 12px", background: "#1a1005", border: "1px solid #3a2a14", borderRadius: 8 }}>
+              <div style={{ fontSize: 10.5, color: "#b8a488", lineHeight: 1.5, marginBottom: 8 }}>
+                Every note in the Native American Flute Database, outside this app's usual hand-held melody range.
+                Sub-bass/Contrabass/Bass run to impractically long tubes for a one-piece flute (they're really drone
+                territory); Soprano/Sopranino/Ultra run tiny and thin-walled. Included for completeness — most won't
+                have a comfortable bore/length combination, and dimmed ones have none at all for the current bore.
+              </div>
+              {NOTE_FAMILIES_ORDER.filter(f => byFamily[f]).map(fam => (
+                <div key={fam} style={{ marginBottom: 6 }}>
+                  <div style={{ fontSize: 9.5, color: "#8a7255", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>{fam}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {byFamily[fam].map(renderPill)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
 }
 
 const SCALE_CONFIGS = {
@@ -213,30 +403,42 @@ function noteNameFromFreq(freq, a4 = 440) {
 function tubeLen(freq, r) { return (SPEED / (2 * freq)) - (0.6 * r); }
 
 // Given a note frequency, finds which bore(s) from BORES produce a comfortable,
-// buildable tube length (5"–52" hard limit; ~10"–24" is the comfortable "sweet
-// spot" most NAF/antler players find easiest to hold and finger). Returns the
-// full list of workable bores plus a single best recommendation — the bore
-// whose resulting tube length lands closest to the middle of the sweet spot.
+// buildable tube length (5"–52" is this app's normal "comfortably buildable"
+// range; ~10"–24" is the "sweet spot" most NAF/antler players find easiest to
+// hold and finger). Every key is selectable now, including the ones well
+// outside typical NAF proportions (deep sub-bass, ultra-high) — so this
+// ALWAYS returns a real "best" recommendation (the bore whose tube length
+// lands closest to the sweet spot), never null. For a key so extreme that no
+// bore reaches the normal 5"–52" range, `extreme`/`extremeTooLong`/
+// `extremeTooShort` say so, so the caller can be honest about it rather than
+// silently presenting a 400" or half-inch tube as an ordinary build.
 // Note: for low keys, tube length is dominated by pitch, not bore — a wider
 // bore only shortens the tube by a fraction of an inch, so the "recommendation"
 // there is really "biggest bore available" rather than a true sweet-spot fit.
 const BORE_SWEET_MIN = 10, BORE_SWEET_MAX = 24, BORE_HARD_MIN = 5, BORE_HARD_MAX = 52;
 function recommendedBores(freq) {
-  const options = BORES.map(b => {
+  const all = BORES.map(b => {
     const tl = tubeLen(freq, b.val / 2);
     const inHardRange  = tl >= BORE_HARD_MIN && tl <= BORE_HARD_MAX;
     const inSweetSpot  = tl >= BORE_SWEET_MIN && tl <= BORE_SWEET_MAX;
     return { ...b, tubeLen: tl, inHardRange, inSweetSpot };
-  }).filter(o => o.inHardRange);
+  });
 
-  if (options.length === 0) return { best: null, options: [], reachesSweetSpot: false };
-
+  const options = all.filter(o => o.inHardRange);
   const sweetOptions = options.filter(o => o.inSweetSpot);
-  const pool = sweetOptions.length > 0 ? sweetOptions : options;
+  // Prefer an in-sweet-spot bore, then any comfortably-buildable bore, then —
+  // for a key so extreme nothing lands in the normal range — the closest ANY
+  // bore gets. Always returns something; never leaves the caller with no
+  // recommendation at all.
+  const pool = sweetOptions.length > 0 ? sweetOptions : (options.length > 0 ? options : all);
   const mid = (BORE_SWEET_MIN + BORE_SWEET_MAX) / 2;
   const best = pool.reduce((a, b) => Math.abs(b.tubeLen - mid) < Math.abs(a.tubeLen - mid) ? b : a);
+  const extreme = !best.inHardRange;
 
-  return { best, options, reachesSweetSpot: sweetOptions.length > 0 };
+  return {
+    best, options: all, reachesSweetSpot: sweetOptions.length > 0,
+    extreme, extremeTooLong: extreme && best.tubeLen > BORE_HARD_MAX, extremeTooShort: extreme && best.tubeLen < BORE_HARD_MIN,
+  };
 }
 
 function nearestNote(freq, NOTES) {
@@ -282,7 +484,7 @@ function analyzeAntlerFit({ length, widestDiam, tipDiam, curvature }, NOTES, hol
   // get a straight-enough bore path, matching the build guide's advice to
   // measure along the curve rather than point-to-point.
   const curveLossFactor = curvature === "heavy" ? 0.88 : curvature === "slight" ? 0.95 : 1.0;
-  const sacLen = bore * FLUTE_CONST.SAC_LEN_RATIO;
+  const sacLen = FLUTE_CONST.autoSacLen(bore);
   const usableTubeLen = (length_ * curveLossFactor) - sacLen - ANTLER_TRIM_ALLOWANCE;
 
   if (usableTubeLen < BORE_HARD_MIN) {
@@ -494,8 +696,144 @@ const BIRD_BLOCKS = {
   },
 };
 
+// ══════════════════════════════════════════════════════════════════════
+//  PROCEDURAL WOOD TEXTURES — no image files, no CDN (this app is strictly
+//  offline, single-file), so wood grain is GENERATED at runtime onto a
+//  canvas and used as a repeating THREE.CanvasTexture. Shared by the
+//  Flute page's 3D preview and the G-code viewer's material simulation,
+//  so picking "Walnut" looks the same wood in both places.
+// ══════════════════════════════════════════════════════════════════════
+const WOOD_SPECIES = {
+  none:       { label: "Plain (no texture)" },
+  cedar:      { label: "Cedar",         base: "#b97a4a", grain: "#7a4526", figure: "straight", contrast: 0.55, scale: 1.15 },
+  walnut:     { label: "Walnut",        base: "#5a4030", grain: "#2a1c14", figure: "straight", contrast: 0.6,  scale: 1.0  },
+  snakewood:  { label: "Snakewood",     base: "#2a1811", grain: "#a8794a", figure: "mottled",  contrast: 0.85, scale: 0.55, streak: 0.1 },
+  redwood:    { label: "Redwood",       base: "#a3543a", grain: "#651f13", figure: "straight", contrast: 0.5,  scale: 1.6  },
+  cherry:     { label: "Cherry",        base: "#8a4a35", grain: "#5c2c1e", figure: "straight", contrast: 0.32, scale: 1.3  },
+  maple:      { label: "Maple",         base: "#dcc79c", grain: "#b89b6e", figure: "straight", contrast: 0.28, scale: 1.2  },
+  padauk:     { label: "Padauk",        base: "#c05a2a", grain: "#7c3010", figure: "straight", contrast: 0.55, scale: 1.1  },
+  bloodwood:  { label: "Bloodwood",     base: "#8a1c1c", grain: "#450d0d", figure: "straight", contrast: 0.5,  scale: 1.0  },
+  purpleheart:{ label: "Purpleheart",   base: "#5a3a6a", grain: "#33203f", figure: "straight", contrast: 0.45, scale: 1.05 },
+  osage:      { label: "Osage Orange",  base: "#bd8c2a", grain: "#7c5416", figure: "straight", contrast: 0.5,  scale: 1.2  },
+  bocote:     { label: "Bocote",        base: "#6b4423", grain: "#211408", figure: "mottled",  contrast: 0.75, scale: 0.9,  streak: 0.55 },
+  ebony:      { label: "Ebony",         base: "#171310", grain: "#050403", figure: "straight", contrast: 0.15, scale: 1.4  },
+};
+const woodTextureCache = {};
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) | 0; } return (h >>> 0) || 1; }
+// Generates one square canvas "swatch" of the species' grain, seeded so
+// the SAME species always looks the same rather than re-rolling on every
+// rebuild. Callers tile it (RepeatWrapping) and set their own repeat
+// counts based on the actual physical size of what they're texturing.
+function generateWoodCanvas(preset, size = 512) {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const { base, grain, figure, contrast = 0.5, scale = 1, streak = 0 } = preset;
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+
+  let seed = hashStr(preset.label);
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+
+  if (figure === "mottled") {
+    // Snakewood / bocote style: many small irregular blotches rather than
+    // parallel grain lines. `streak` elongates them along one axis (bocote's
+    // dramatic linear figure) vs. rounder reticulated blotches (snakewood).
+    const count = Math.round((size * size) / (2600 * scale));
+    for (let pass = 0; pass < 3; pass++) {           // 3 offset passes so the tile edges don't show a hard seam
+      const ox = pass === 1 ? size : pass === 2 ? -size : 0;
+      for (let i = 0; i < count / 3; i++) {
+        const x = rand() * size + ox, y = rand() * size;
+        const rx = (7 + rand() * 20) * scale;
+        const ry = rx * (streak > 0.3 ? 1 + streak * 3.5 : 0.45 + rand() * 0.5);
+        ctx.save();
+        ctx.translate(x, y); ctx.rotate(rand() * Math.PI);
+        ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fillStyle = grain; ctx.globalAlpha = 0.12 + rand() * contrast * 0.55;
+        ctx.fill(); ctx.restore();
+      }
+    }
+  } else {
+    // Straight-grain: wavy, semi-transparent lines running along one axis —
+    // most tonewoods, seen plain-sawn.
+    const lineCount = Math.round(16 * scale);
+    for (let i = 0; i < lineCount; i++) {
+      const yBase = ((i + 0.5) / lineCount) * size;
+      const amp = 4 + rand() * 9, freq = 0.007 + rand() * 0.009, phase = rand() * Math.PI * 2;
+      ctx.beginPath();
+      for (let x = -20; x <= size + 20; x += 5) {
+        const y = yBase + Math.sin(x * freq + phase) * amp;
+        if (x === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = grain; ctx.globalAlpha = 0.1 + rand() * contrast * 0.5;
+      ctx.lineWidth = 0.6 + rand() * 2;
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Fine per-pixel brightness jitter so it doesn't read as flat vector art.
+  const img = ctx.getImageData(0, 0, size, size);
+  const d = img.data;
+  seed = hashStr(preset.label + "-noise");
+  for (let p = 0; p < d.length; p += 4) {
+    const j = (rand() - 0.5) * 14;
+    d[p] = Math.max(0, Math.min(255, d[p] + j));
+    d[p + 1] = Math.max(0, Math.min(255, d[p + 1] + j));
+    d[p + 2] = Math.max(0, Math.min(255, d[p + 2] + j));
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+// Returns the cached base texture for a species (generated once), or null
+// for "none"/unknown. Callers MUST clone() before setting their own
+// .repeat, since wrap/repeat are shared state on a THREE.Texture and
+// different meshes need different tiling counts.
+function getWoodTexture(speciesKey) {
+  const preset = WOOD_SPECIES[speciesKey];
+  if (!preset || !preset.base) return null;   // "none" has no base color — no texture
+  if (!woodTextureCache[speciesKey]) {
+    const canvas = generateWoodCanvas(preset);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.needsUpdate = true;
+    woodTextureCache[speciesKey] = tex;
+  }
+  return woodTextureCache[speciesKey];
+}
+// Clones the cached species texture and sets a REPEAT sized to the actual
+// physical dimensions being covered, so grain scale reads consistently
+// whether it's wrapped around a thin flute or tiled across a long stock
+// blank. `tileInches` is roughly how much real length one texture tile
+// should span before repeating.
+function woodTextureFor(speciesKey, uInches, vInches, tileInches = 3) {
+  const base = getWoodTexture(speciesKey);
+  if (!base) return null;
+  const tex = base.clone();
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(Math.max(0.25, uInches / tileInches), Math.max(0.25, vInches / tileInches));
+  tex.needsUpdate = true;
+  tex.__speciesBase = WOOD_SPECIES[speciesKey] && WOOD_SPECIES[speciesKey].base;   // lets small, un-UV'd pieces (the bird) at least tint-match
+  return tex;
+}
+
 const FLUTE_CONST = {
-  SAC_LEN_RATIO:      4.6,   // SAC (slow air chamber) length = bore * this
+  SAC_LEN_RATIO:      4.6,   // SAC (slow air chamber) length = bore * this (before the cap)
+  SAC_LEN_MIN:        1.5,   // floor — a SAC shorter than this crowds the ramp/flue run
+  // Basic drilled layout (hand-finish mode): every locating cut except the
+  // SAC and the full bore is machined this much SMALLER than its design
+  // dimension, leaving stock for the maker to hand-fit/ream/file to size.
+  HAND_FINISH_UNDERSIZE_IN: 2.0 / 25.4,   // ~2mm
+  // No ceiling on the AUTO formula: bore*4.6 scales the SAC in lockstep with
+  // how much room the ramp (bore floor → flue floor) needs at large bores,
+  // which is exactly why routing always had room before. A flat cap here
+  // breaks that proportionality and crowds the ramp/blow-channel geometry
+  // on big bores. If you want a shorter SAC on a big-bore flute, use the
+  // per-flute override slider on the Flute page (Nest / Sound Hole Shape) —
+  // it's unclamped by this formula, and the ramp will steepen (with a
+  // warning) rather than silently crowd the blow channel if you push it
+  // aggressively short.
+  autoSacLen(bore) { return Math.max(this.SAC_LEN_MIN, bore * this.SAC_LEN_RATIO); },
   MOUTHPIECE_MARGIN:  2.0,   // inches added to L+sacLen for the trimmed mouthpiece end
   // Sound hole (TSH) width and length — corrected from a flat bore-multiple
   // guess to match real, sourced Native American flute construction data
@@ -619,7 +957,7 @@ function curveBowAmplitudeIn(curve) {
 //       future edit reintroduces a local recomputation that drifts from
 //       the shared constants, this catches it immediately rather than
 //       relying on someone noticing a rendering discrepancy by eye.
-//    3. totalLen = L + sacLen + MOUTHPIECE_MARGIN, exactly.
+//    3. totalLen = L + sacLen + mouthpiece margin, exactly.
 //    4. Every hole's fromTSH + fromFoot equals the chamber's own L
 //       (within floating-point tolerance) — i.e. positions are internally
 //       consistent, not just individually plausible.
@@ -638,9 +976,11 @@ function validateChamberGeometry(chamber, label = "chamber") {
   const shL = parseFloat(chamber.shL);
   const totalLen = chamber.totalLen !== null ? parseFloat(chamber.totalLen) : null;
 
-  const expectedSacLen = bore * FLUTE_CONST.SAC_LEN_RATIO;
-  if (Math.abs(sacLen - expectedSacLen) > GEOMETRY_TOLERANCE) {
-    issues.push(`${label}: sacLen=${sacLen} does not match bore*SAC_LEN_RATIO=${expectedSacLen.toFixed(3)}`);
+  // SAC length is user-overridable now — flag only genuinely broken values
+  // (non-finite or outside the physically sane window), not deviations from
+  // the auto formula.
+  if (!Number.isFinite(sacLen) || sacLen < 0.8 || sacLen > 20) {
+    issues.push(`${label}: sacLen=${sacLen} is outside the sane range 0.8–20″ (auto for this bore: ${FLUTE_CONST.autoSacLen(bore).toFixed(3)}″)`);
   }
   const expectedShW = FLUTE_CONST.soundHoleWidth(bore);
   if (Math.abs(shW - expectedShW) > GEOMETRY_TOLERANCE) {
@@ -651,9 +991,10 @@ function validateChamberGeometry(chamber, label = "chamber") {
     issues.push(`${label}: shL=${shL} does not match soundHoleLength(bore)=${expectedShL.toFixed(3)}`);
   }
   if (totalLen !== null) {
-    const expectedTotal = L + sacLen + FLUTE_CONST.MOUTHPIECE_MARGIN;
+    const margin = chamber.mouthpieceMargin !== undefined ? parseFloat(chamber.mouthpieceMargin) : FLUTE_CONST.MOUTHPIECE_MARGIN;
+    const expectedTotal = L + sacLen + margin;
     if (Math.abs(totalLen - expectedTotal) > GEOMETRY_TOLERANCE) {
-      issues.push(`${label}: totalLen=${totalLen} does not match L+sacLen+MOUTHPIECE_MARGIN=${expectedTotal.toFixed(3)}`);
+      issues.push(`${label}: totalLen=${totalLen} does not match L+sacLen+mouthpieceMargin=${expectedTotal.toFixed(3)}`);
     }
   }
 
@@ -705,10 +1046,11 @@ function fixChamberGeometry(chamber, label = "chamber") {
   const bore = c.bore;
   const round = (v) => Math.round(v * 1000) / 1000;
 
-  const expectedSacLen = round(bore * FLUTE_CONST.SAC_LEN_RATIO);
-  if (Math.abs(parseFloat(c.sacLen) - expectedSacLen) > GEOMETRY_TOLERANCE) {
-    fixes.push(`${label}: SAC length ${c.sacLen}″ → ${expectedSacLen}″ (bore × SAC ratio)`);
-    c.sacLen = expectedSacLen;
+  const sacNow = parseFloat(c.sacLen);
+  if (!Number.isFinite(sacNow) || sacNow < 0.8 || sacNow > 20) {
+    const autoSac = round(FLUTE_CONST.autoSacLen(bore));
+    fixes.push(`${label}: SAC length ${c.sacLen}″ → ${autoSac}″ (capped auto; overrides in the sane range are left alone)`);
+    c.sacLen = autoSac;
   }
   const expectedShW = round(FLUTE_CONST.soundHoleWidth(bore));
   if (Math.abs(parseFloat(c.shW) - expectedShW) > GEOMETRY_TOLERANCE) {
@@ -722,7 +1064,8 @@ function fixChamberGeometry(chamber, label = "chamber") {
   }
   const L = parseFloat(c.L);
   if (c.totalLen !== null && c.totalLen !== undefined) {
-    const expectedTotal = round(L + parseFloat(c.sacLen) + FLUTE_CONST.MOUTHPIECE_MARGIN);
+    const margin = c.mouthpieceMargin !== undefined ? parseFloat(c.mouthpieceMargin) : FLUTE_CONST.MOUTHPIECE_MARGIN;
+    const expectedTotal = round(L + parseFloat(c.sacLen) + margin);
     if (Math.abs(parseFloat(c.totalLen) - expectedTotal) > GEOMETRY_TOLERANCE) {
       fixes.push(`${label}: total length ${c.totalLen}″ → ${expectedTotal}″ (L + SAC + mouthpiece margin)`);
       c.totalLen = expectedTotal;
@@ -777,11 +1120,23 @@ function fixAllChambers(chambers) {
 }
 
 
-function buildChamberGeometry({ bore, freq, holeCount = 0, handSize = "average", holeShapeKey = "round", ergoOverride = null }) {
+function buildChamberGeometry({ bore, freq, holeCount = 0, handSize = "average", holeShapeKey = "round", ergoOverride = null, sacLenIn = null, mouthpieceMarginIn = null }) {
   const r = bore / 2;
   const L = Math.max(0, tubeLen(freq, r));
-  const sacLen = bore * FLUTE_CONST.SAC_LEN_RATIO;
-  const totalLen = L > 0 ? L + sacLen + FLUTE_CONST.MOUTHPIECE_MARGIN : 0;
+  // SAC length: a per-flute override when one is set, else the capped auto
+  // formula (bore × 4.6, clamped 1.5–5"). The SAC is a plenum — its length
+  // shapes response and blank length, not pitch — so this is a maker's call.
+  const sacLen = (Number.isFinite(sacLenIn) && sacLenIn > 0)
+    ? Math.max(0.8, Math.min(sacLenIn, 20)) : FLUTE_CONST.autoSacLen(bore);
+  // Mouthpiece margin: how much extra stock beyond L+SAC to leave for the
+  // trimmed/finished blowing end. There's no acoustic formula for this the
+  // way there is for SAC — it's a workshop call (saw kerf, how square your
+  // cut is, how much material your finishing technique eats into), so this
+  // is a per-flute override over the flat default rather than a bore-scaled
+  // guess dressed up as a calculation.
+  const mouthpieceMargin = (Number.isFinite(mouthpieceMarginIn) && mouthpieceMarginIn >= 0)
+    ? Math.min(mouthpieceMarginIn, 6) : FLUTE_CONST.MOUTHPIECE_MARGIN;
+  const totalLen = L > 0 ? L + sacLen + mouthpieceMargin : 0;
   const shW = FLUTE_CONST.soundHoleWidth(bore);
   const shL = FLUTE_CONST.soundHoleLength(bore);
 
@@ -831,7 +1186,7 @@ function buildChamberGeometry({ bore, freq, holeCount = 0, handSize = "average",
 
   return {
     bore, freq, L: fmt(L), totalLen: L > 0 ? fmt(totalLen) : null,
-    sacLen: fmt(sacLen), shW: fmt(shW), shL: fmt(shL),
+    sacLen: fmt(sacLen), mouthpieceMargin: fmt(mouthpieceMargin), shW: fmt(shW), shL: fmt(shL),
     holeCount, holes, theoreticalHoles, playable: L > 0,
   };
 }
@@ -1593,7 +1948,7 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
   // inletOffsetZ moves this chamber's breath inlet ACROSS the body to the
   // shared mouthpiece; run is how far along the tube the passage sweeps back
   // to the chamber's own centreline. null = a straight axial passage.
-  breathConverge = null) {
+  breathConverge = null, woodTex = null) {
   const group = new THREE.Group();
 
   const bowAmp = curveBowAmplitudeIn(curve);
@@ -1713,12 +2068,17 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
       const tipHeight = Math.max(0, Math.min(
         Number.isFinite(c.nestTipHeightIn) ? c.nestTipHeightIn : 1 / 128,
         flueDepth * 0.9));
-      const tipY = -flueDepth + tipHeight;
-      const fippleRad = Math.max(4, fippleAngleDeg) * Math.PI / 180; // slider now reaches 5°
-      const bevRun = Math.max(0.01, (tshCutDepth + tipY) / Math.tan(fippleRad));
-      const topRun = (-tipY) / Math.tan(15 * Math.PI / 180);
-      // Prairie's "~1/100 flat" at the cutting-edge tip (user-adjustable):
+      const tipY = -flueDepth + tipHeight;             // nominal tip height — the CENTRE of the flat
+      // Prairie's "~1/100 flat" (user-adjustable) — a VERTICAL step at the
+      // fixed TSH station (xTsh1): the fipple bevel rises to tipY−tipFlat/2,
+      // a small vertical wall of that height carries it up to tipY+tipFlat/2,
+      // and the outer relief continues from there. No horizontal offset —
+      // sanding the sharp point flat leaves a vertical face, not a ledge.
       const tipFlat = Math.max(0, Math.min(Number.isFinite(c.nestTipFlatIn) ? c.nestTipFlatIn : 0.01, 0.06));
+      const tipYLow = tipY - tipFlat / 2, tipYHigh = tipY + tipFlat / 2;
+      const fippleRad = Math.max(4, fippleAngleDeg) * Math.PI / 180; // slider now reaches 5°
+      const bevRun = Math.max(0.01, (tshCutDepth + tipYLow) / Math.tan(fippleRad));
+      const topRun = (-tipYHigh) / Math.tan(15 * Math.PI / 180);
       // Backset (Prairie: 0 to D/3): the bore extends back under the flue —
       // the block's downstream face sits this far upstream of the TSH edge.
       const backset = Math.max(0, Math.min(Number.isFinite(c.nestBacksetIn) ? c.nestBacksetIn : 0, c.bore / 3, flueLength * 0.6));
@@ -1735,10 +2095,10 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
       shape.lineTo(xExit0, 0);                     // ceiling's surface-level edge — the shL gap to the bird is measured here
       shape.lineTo(xExit0 - ceilRun, -tshCutDepth); // ceiling end angled down INTO the SAC (Prairie), at the ramp angle
       shape.lineTo(xTsh1 + bevRun, -tshCutDepth);  // full-depth floor of the whole cut
-      shape.lineTo(xTsh1, tipY);                   // fipple bevel up to the tip
-      shape.lineTo(xTsh1 + tipFlat, tipY);         // the tiny tip FLAT (Prairie ~1/100")
-      shape.lineTo(xTsh1 + tipFlat + topRun, 0);   // ~15° outer relief
-      shape.lineTo(xTsh1 + tipFlat + topRun, 0.15);
+      shape.lineTo(xTsh1, tipYLow);                // fipple bevel rises to the bottom of the flat
+      shape.lineTo(xTsh1, tipYHigh);               // the tiny tip FLAT (Prairie ~1/100") — VERTICAL, same X
+      shape.lineTo(xTsh1 + topRun, 0);             // ~15° outer relief, starting from the top of the flat
+      shape.lineTo(xTsh1 + topRun, 0.15);
       shape.closePath();
 
       const channelGeo = new THREE.ExtrudeGeometry(shape, { depth: shW, bevelEnabled: false, steps: 1 });
@@ -1803,8 +2163,8 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
           // Prairie: the bird can carry a CHIMNEY over the TSH — a raised
           // extension whose underside sits `chimney` above the surface,
           // enclosing a shaft above the window (deep chimney = flatter pitch).
-          const chimBox = new THREE.BoxGeometry(shL + tipFlat + 0.05, birdH - chimney, birdW);
-          chimBox.translate((shL + tipFlat + 0.05) / 2 - 0.01, chimney + (birdH - chimney) / 2, 0);
+          const chimBox = new THREE.BoxGeometry(shL + topRun + 0.05, birdH - chimney, birdW);
+          chimBox.translate((shL + topRun + 0.05) / 2 - 0.01, chimney + (birdH - chimney) / 2, 0);
           const a = new Brush(birdBox); a.updateMatrixWorld();
           const b = new Brush(chimBox); b.updateMatrixWorld();
           birdBox = evaluator.evaluate(a, b, ADDITION).geometry;
@@ -1815,7 +2175,12 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
         const clipBrush2 = new Brush(clipGeo); clipBrush2.updateMatrixWorld();
         const birdResult = evaluator.evaluate(birdBrush, clipBrush2, SUBTRACTION);
         birdResult.geometry.computeVertexNormals();
-        const birdColor = new THREE.Color(materialColor).multiplyScalar(0.72);
+        // The bird's own small, separately-CSG-cut geometry doesn't carry
+        // reliable UVs, so it stays a flat tint rather than textured — but
+        // that tint follows the chosen wood species' base tone when one is
+        // set, so it reads as the same timber as the body, not a mismatch.
+        const birdBaseColor = woodTex && woodTex.__speciesBase ? woodTex.__speciesBase : materialColor;
+        const birdColor = new THREE.Color(birdBaseColor).multiplyScalar(0.72);
         nestBirdMesh = new THREE.Mesh(birdResult.geometry, new THREE.MeshStandardMaterial({
           color: birdColor, roughness: surfaceRoughness, metalness: surfaceMetalness,
         }));
@@ -1828,16 +2193,29 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
       // group.localToWorld, folding in the rootGroup centering offset).
       const toGroupSpace = (xLocal, yLocal) => new THREE.Vector3(xLocal, yLocal, 0).applyMatrix4(basis).add(originPoint);
       const labelLift = Math.max(0.08, r * 0.4);
+      const chimneyDim = Math.max(0, Math.min(Number.isFinite(c.nestChimneyIn) ? c.nestChimneyIn : 0, 0.5));
       nestTrackingPoints = {
         rampAngleDeg: rampAngleDegEffective,
+        rampCurve: rampCurveK,
         flueDepthIn: flueDepth,
+        flueLengthIn: flueLength,
         tshLengthIn: shL,
+        tshWidthIn: shW,
         fippleAngleDeg,
+        wallThicknessIn: wallT,
+        tipHeightIn: tipHeight,
+        tipFlatIn: tipFlat,
+        backsetIn: backset,
+        chimneyIn: chimneyDim,
         ramp: toGroupSpace((xRampBase + xExit1) / 2, labelLift),
         sacExit: toGroupSpace((xExit0 + xExit1) / 2, labelLift),
         flue: toGroupSpace((xFlue0 + xTsh0) / 2, labelLift),
         tsh: toGroupSpace((xTsh0 + xTsh1) / 2, labelLift),
         fipple: toGroupSpace(xTsh1 + topRun, labelLift),
+        tip: toGroupSpace(xTsh1 + 0.05, tipY - 0.05),   // small fixed offset — tipFlat is now vertical, not a horizontal reach
+        wall: toGroupSpace(xTsh1 + topRun + 0.4, -wallT / 2),
+        backset: toGroupSpace(xTsh0 - Math.max(backset / 2, 0.05), -flueDepth - Math.max(0.08, r * 0.3)),
+        chimney: toGroupSpace((xFlue0 + xTsh0) / 2, labelLift + Math.max(0.18, chimneyDim + 0.1)),
       };
 
       const channelBrush = new Brush(channelGeo); channelBrush.updateMatrixWorld();
@@ -2052,8 +2430,11 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
   // visual trick is needed to make them read as physical holes; the
   // actual geometry does that on its own from any angle.
   bodyResult.geometry.computeVertexNormals();
-  const outerMat = new THREE.MeshStandardMaterial({ color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness });
+  const outerMat = new THREE.MeshStandardMaterial(woodTex
+    ? { map: woodTex, roughness: surfaceRoughness, metalness: surfaceMetalness }
+    : { color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness });
   const bodyMesh = new THREE.Mesh(bodyResult.geometry, outerMat);
+  bodyMesh.name = "chamberBody";   // the solid-body drone merge unions these
   group.add(bodyMesh);
   // Functional bird (flue roof) from the nest section — a separate mesh in
   // a slightly darker tone, so decorative STL birds remain independent.
@@ -2076,7 +2457,10 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
   // ── SAC block tint (mouthpiece → TSH) — a thin, slightly-larger-radius
   // translucent overlay so that section reads visually distinct, matching
   // the 2D template and PDF shading, without another CSG pass ──────
-  if (c.sacLen > 0) {
+  // (Skipped on a solid-body drone: the tint sits a hair PROUD of the tube,
+  // so on a merged flat-faced body it poked translucent stripes through the
+  // fill's front and back faces — one of the reported artifacts.)
+  if (c.sacLen > 0 && !breathConverge) {
     const sacSegs = Math.max(4, Math.round(segments * tTSH));
     const sacPts = [];
     for (let i = 0; i <= sacSegs; i++) sacPts.push(centerAt((i / sacSegs) * tTSH));
@@ -2143,10 +2527,70 @@ function buildChamberMesh(c, curve, materialColor, holeShape = "round", surfaceR
   return { group, totalLen, curvePath, nestTrackingPoints };
 }
 
+// ── NEST DIMENSION LABELS — shared registry & visibility store ─────────
+// One canonical list of every nest feature that can carry an on-canvas
+// dimension label, used by BOTH 3D views (the Flute page preview and the
+// Flow Studio wind chamber). Per-feature show/hide choices persist in
+// localStorage and broadcast via a window event, so toggling a label on
+// one page updates the other live.
+const NEST_DIM_KEYS = [
+  { key: "ramp",    label: "Ramp (angle · scoop)" },
+  { key: "sacExit", label: "SAC exit (length)" },
+  { key: "flue",    label: "Flue (length × depth)" },
+  { key: "tsh",     label: "TSH window (length × width)" },
+  { key: "fipple",  label: "Fipple / edge (angle)" },
+  { key: "tip",     label: "Edge tip (height · flat)" },
+  { key: "wall",    label: "Wall thickness" },
+  { key: "backset", label: "Backset" },
+  { key: "chimney", label: "Bird chimney" },
+];
+const NEST_DIMVIS_LS = "naf_nest_dim_labels_v1";
+function loadNestDimVis() {
+  try {
+    const raw = localStorage.getItem(NEST_DIMVIS_LS);
+    if (raw) {
+      const v = JSON.parse(raw);
+      if (v && typeof v === "object" && v.keys) {
+        return { master: v.master !== false,
+          keys: Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, v.keys[d.key] !== false])) };
+      }
+    }
+  } catch (e) { /* fresh defaults below */ }
+  return { master: true, keys: Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, true])) };
+}
+function saveNestDimVis(v) {
+  try { localStorage.setItem(NEST_DIMVIS_LS, JSON.stringify(v)); } catch (e) { /* private mode */ }
+  try { window.dispatchEvent(new Event("naf-dimvis-updated")); } catch (e) { /* SSR guard */ }
+}
+// Compact per-feature checkbox grid, shared by both pages.
+function NestDimTogglePanel({ dimVis, setDimVis, accent = "#7dd3fc", border = "#3a2a14", text = "#e7e5e4", mutedC = "#a8a29e" }) {
+  const upd = (next) => { setDimVis(next); saveNestDimVis(next); };
+  return (
+    <div style={{marginTop:6}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 10px"}}>
+        {NEST_DIM_KEYS.map(d => (
+          <label key={d.key} style={{display:"flex",alignItems:"center",gap:5,fontSize:10.5,color:dimVis.keys[d.key]?text:mutedC,cursor:"pointer",opacity:dimVis.master?1:0.45}}>
+            <input type="checkbox" checked={!!dimVis.keys[d.key]} disabled={!dimVis.master}
+              onChange={e => upd({ ...dimVis, keys: { ...dimVis.keys, [d.key]: e.target.checked } })}
+              style={{accentColor:accent}}/>
+            {d.label}
+          </label>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:5}}>
+        <button onClick={() => upd({ ...dimVis, keys: Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, true])) })}
+          style={{background:"none",border:`1px solid ${border}`,borderRadius:5,color:mutedC,fontSize:9.5,padding:"2px 8px",cursor:"pointer"}}>All</button>
+        <button onClick={() => upd({ ...dimVis, keys: Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, false])) })}
+          style={{background:"none",border:`1px solid ${border}`,borderRadius:5,color:mutedC,fontSize:9.5,padding:"2px 8px",cursor:"pointer"}}>None</button>
+      </div>
+    </div>
+  );
+}
+
 function Flute3DViewer({
   chambers, curve = "straight", pipeMaterial = "straight", holeShape = "round", birdKey = "none",
   birdHeight = 1, ambientIntensity = 0.55, keyIntensity = 0.9, surfaceRoughness = 0.75, surfaceMetalness = 0.05,
-  showNestLabels = true, droneBody = "separate",
+  showNestLabels = true, dimVis = null, droneBody = "separate", woodSpecies = "none",
 }) {
   const mountRef = useRef(null);
   const stateRef = useRef({});
@@ -2158,7 +2602,7 @@ function Flute3DViewer({
   // mean a full re-render 60x/sec just to move a label, the same reason
   // the fluteview.html reference tool manipulates its labels' DOM directly
   // rather than through a framework.
-  const nestLabelRefs = useRef({ ramp: null, sacExit: null, flue: null, tsh: null, fipple: null });
+  const nestLabelRefs = useRef(Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, null])));
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -2202,6 +2646,14 @@ function Flute3DViewer({
       if (cancelled) return;
       try {
         const materialColor = pipeMaterial === "antler" ? "#c9a876" : "#d8cdb8";
+        // Shared by the drone mouthpiece and the solid-body union below —
+        // computed once up front so both use the exact same texture instance
+        // (same grain, same scale) rather than two independently-generated
+        // ones that could drift apart in appearance.
+        const woodTexDrone = (pipeMaterial !== "antler" && woodSpecies && woodSpecies !== "none")
+          ? woodTextureFor(woodSpecies, Math.PI * Math.max(...chambers.map(cc => cc.bore)),
+              Math.max(...chambers.map(cc => cc.sacLen + cc.L)), 2.5)
+          : null;
         const rootGroup = new THREE.Group();
         let maxLen = 1;
         let nestLabelState = null; // { group, points } for the melody chamber's nest, if any
@@ -2234,6 +2686,20 @@ function Flute3DViewer({
         if (solidDrone) {
           const bhWs = chambers.map(cc => Number.isFinite(cc.breathHoleWidthIn) ? cc.breathHoleWidthIn : FLUTE_CONST.breathHoleWidth(cc.bore));
           const bhLs = chambers.map(cc => Number.isFinite(cc.breathHoleLengthIn) ? cc.breathHoleLengthIn : FLUTE_CONST.breathHoleLength(cc.bore));
+          // Same separate-channels guarantee as the G-code: if adjacent
+          // chambers' blow channels would meet at their SAC ends with less
+          // than a 0.06" wood web, every hole scales down by one factor —
+          // each chamber always breathes through its OWN channel.
+          {
+            let f = 1;
+            for (let i = 0; i < chambers.length - 1; i++) {
+              const centerDist = Math.abs(zPositions[i + 1] - zPositions[i]);
+              const need = (bhWs[i] + bhWs[i + 1]) / 2;
+              const avail = centerDist - 0.06;
+              if (avail > 0.02 && need > avail) f = Math.min(f, avail / need);
+            }
+            if (f < 0.999) for (let i = 0; i < bhWs.length; i++) bhWs[i] = Math.max(0.12, bhWs[i] * f);
+          }
           const zMid = (zPositions[0] + zPositions[zPositions.length - 1]) / 2;
           const spread = bhWs.reduce((s, w) => s + w, 0) + MOUTH_EDGE_GAP * (chambers.length - 1);
           let zc = zMid - spread / 2;
@@ -2252,7 +2718,13 @@ function Flute3DViewer({
           // Every chamber honors the user's hole shape AND bird selection —
           // drones are secondary voices on the same instrument, drilled and
           // fitted the same way as the melody chamber.
-          const { group, totalLen, nestTrackingPoints } = buildChamberMesh(c, curve, materialColor, holeShape, surfaceRoughness, surfaceMetalness, birdKey, convergeFor(i));
+          // Wood grain wraps the bore's circumference (U) and runs along the
+          // chamber's length (V) — antler stays its own bone tone regardless
+          // of species, since a wood texture on antler wouldn't make sense.
+          const woodTex = (pipeMaterial !== "antler" && woodSpecies && woodSpecies !== "none")
+            ? woodTextureFor(woodSpecies, Math.PI * c.bore, c.sacLen + c.L, 2.5)
+            : null;
+          const { group, totalLen, nestTrackingPoints } = buildChamberMesh(c, curve, materialColor, holeShape, surfaceRoughness, surfaceMetalness, birdKey, convergeFor(i), woodTex);
           group.position.z = zPositions[i];
           if (birdKey && birdKey !== "none") {
             try {
@@ -2302,9 +2774,9 @@ function Flute3DViewer({
                 solid.updateMatrixWorld();
               });
               solid.geometry.computeVertexNormals();
-              const mp = new THREE.Mesh(solid.geometry, new THREE.MeshStandardMaterial({
-                color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness,
-              }));
+              const mp = new THREE.Mesh(solid.geometry, new THREE.MeshStandardMaterial(woodTexDrone
+                ? { map: woodTexDrone, roughness: surfaceRoughness, metalness: surfaceMetalness }
+                : { color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness }));
               mp.name = "mouthpiece";
               rootGroup.add(mp);
             });
@@ -2319,8 +2791,19 @@ function Flute3DViewer({
         // round outer diameter of the tubes — the classic double-flute
         // blank cross-section. Each chamber's finger holes and nest air
         // region are CSG-cut through the fill so nothing gets buried.
+        //
+        // The carved tubes and the fill are then CSG-UNIONED into ONE
+        // watertight mesh. Previously they were separate meshes that
+        // interpenetrated: the slab spanned centreline-to-centreline
+        // straight through the tube walls, its flat faces ran tangent to
+        // the crowns, and its hole/bore clearance cuts left coincident
+        // shells — all of which z-fought as shimmering artifacts on the
+        // front and back faces and ringed every finger and sound hole.
+        // The union resolves every internal/coincident face, leaving a
+        // single clean outer surface.
         if (droneBody === "solid" && chambers.length > 1 && curveBowAmplitudeIn(curve) === 0) {
           const fillEval = new Evaluator();
+          const slabBrushes = [];
           for (let i = 0; i < chambers.length - 1; i++) {
             const A = chambers[i], Bc = chambers[i + 1];
             const zA = zPositions[i], zB = zPositions[i + 1];
@@ -2351,8 +2834,20 @@ function Flute3DViewer({
               const notchW = Math.max(shWc, birdWc) + 0.08;
               const x0 = cc.sacLen - (flueLc + shLc + 0.45);
               const x1 = cc.sacLen + shLc + 0.55;
-              const notch = new THREE.BoxGeometry(x1 - x0, 2 * Rp + 0.4, notchW);
-              notch.translate((x0 + x1) / 2, 0, zc);
+              // The nest clearance cuts ONLY from just below this chamber's
+              // own crown upward. It used to be a full-height void, which
+              // gutted the fill's BOTTOM face (no nest features live there
+              // at all) and ate the top wedges between the tubes — the
+              // unfilled gaps around the nest section. Now the bottom fill
+              // runs solid, the top deck fills to within 0.02" of the nest
+              // zone (the bird reads as seated in a shallow pocket), and a
+              // smaller-bore drone's nest sits exposed in a recessed pocket
+              // instead of a hole through the whole body — filled between
+              // the bodies, nest unobstructed.
+              const yBase = outerRFor(cc) - 0.02;
+              const notchH = (Rp + 0.4) - yBase;
+              const notch = new THREE.BoxGeometry(x1 - x0, notchH, notchW);
+              notch.translate((x0 + x1) / 2, yBase + notchH / 2, zc);
               const nb = new Brush(notch); nb.updateMatrixWorld();
               slab = new Brush(fillEval.evaluate(slab, nb, SUBTRACTION).geometry); slab.updateMatrixWorld();
               if (cc.playable && cc.holes) cc.holes.forEach(h => {
@@ -2366,10 +2861,52 @@ function Flute3DViewer({
               });
             };
             cutFor(A, zA); cutFor(Bc, zB);
-            const mesh = new THREE.Mesh(slab.geometry, new THREE.MeshStandardMaterial({
-              color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness }));
+            slabBrushes.push(slab);
+          }
+          // ── ONE BODY, ONE MESH ──────────────────────────────────────
+          const removed = [];
+          try {
+            const bodyBrushes = [];
+            rootGroup.children.forEach(g => {
+              const bm = g.getObjectByName && g.getObjectByName("chamberBody");
+              if (!bm) return;
+              const geo = bm.geometry.clone();
+              geo.translate(0, 0, g.position.z);   // into shared body space
+              const br = new Brush(geo); br.updateMatrixWorld();
+              bodyBrushes.push(br);
+              removed.push({ parent: bm.parent, mesh: bm });
+            });
+            if (!bodyBrushes.length) throw new Error("no chamber bodies found to merge");
+            removed.forEach(rm => rm.parent.remove(rm.mesh));
+            let union = bodyBrushes[0];
+            for (let k = 1; k < bodyBrushes.length; k++) {
+              union = new Brush(fillEval.evaluate(union, bodyBrushes[k], ADDITION).geometry);
+              union.updateMatrixWorld();
+            }
+            for (const sb of slabBrushes) {
+              union = new Brush(fillEval.evaluate(union, sb, ADDITION).geometry);
+              union.updateMatrixWorld();
+            }
+            union.geometry.computeVertexNormals();
+            const mesh = new THREE.Mesh(union.geometry, new THREE.MeshStandardMaterial(woodTexDrone
+              ? { map: woodTexDrone, roughness: surfaceRoughness, metalness: surfaceMetalness }
+              : { color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness }));
+            mesh.name = "droneBody";
             mesh.castShadow = true; mesh.receiveShadow = true;
             rootGroup.add(mesh);
+            removed.forEach(rm => { try { rm.mesh.geometry.dispose(); } catch (e) { /* already gone */ } });
+          } catch (err) {
+            // Never lose the preview over a CSG hiccup: put the tubes back
+            // and fall back to the old separate-mesh fill.
+            console.warn("[Flute3DViewer] Solid-body union failed — falling back to separate meshes:", err);
+            removed.forEach(rm => rm.parent.add(rm.mesh));
+            slabBrushes.forEach(sb => {
+              const mesh = new THREE.Mesh(sb.geometry, new THREE.MeshStandardMaterial(woodTexDrone
+                ? { map: woodTexDrone, roughness: surfaceRoughness, metalness: surfaceMetalness }
+                : { color: materialColor, roughness: surfaceRoughness, metalness: surfaceMetalness }));
+              mesh.castShadow = true; mesh.receiveShadow = true;
+              rootGroup.add(mesh);
+            });
           }
         }
         // Center the whole assembly at the origin for orbiting.
@@ -2410,7 +2947,8 @@ function Flute3DViewer({
         // raycasting/geometry checks, and applies just as much to labels.
         const updateNestLabels = () => {
           const refs = nestLabelRefs.current;
-          if (!nestLabelState || !stateRef.current.showNestLabels) {
+          const vis = stateRef.current.dimVis;
+          if (!nestLabelState || !stateRef.current.showNestLabels || (vis && vis.master === false)) {
             Object.values(refs).forEach(el => { if (el) el.style.display = "none"; });
             return;
           }
@@ -2418,7 +2956,8 @@ function Flute3DViewer({
           const w = mount.clientWidth || 600;
           const place = (key, localPoint, text) => {
             const el = refs[key];
-            if (!el || !localPoint) return;
+            if (!el) return;
+            if (!localPoint || (vis && vis.keys && vis.keys[key] === false)) { el.style.display = "none"; return; }
             const world = localPoint.clone();
             nestGroup.localToWorld(world);
             world.project(camera);
@@ -2428,16 +2967,26 @@ function Flute3DViewer({
             el.style.top = `${(-world.y * 0.5 + 0.5) * height}px`;
             el.textContent = text;
           };
-          place("ramp",    points.ramp,    `Ramp ${points.rampAngleDeg.toFixed(0)}°`);
-          place("sacExit", points.sacExit, `SAC Exit`);
-          place("flue",    points.flue,    `Flue ${points.flueDepthIn.toFixed(3)}"`);
-          place("tsh",     points.tsh,     `TSH ${points.tshLengthIn.toFixed(3)}"`);
+          place("ramp",    points.ramp,    `Ramp ${points.rampAngleDeg.toFixed(0)}°${points.rampCurve > 0.01 ? ` · scoop ${points.rampCurve.toFixed(2)}` : ""}`);
+          place("sacExit", points.sacExit, `SAC exit ${points.tshLengthIn.toFixed(3)}"`);
+          place("flue",    points.flue,    `Flue ${points.flueLengthIn.toFixed(3)}" × ${points.flueDepthIn.toFixed(3)}"`);
+          place("tsh",     points.tsh,     `TSH ${points.tshLengthIn.toFixed(3)}" × ${points.tshWidthIn.toFixed(3)}"`);
           place("fipple",  points.fipple,  `Fipple ${points.fippleAngleDeg.toFixed(0)}°`);
+          place("tip",     points.tip,     `Tip ↑${points.tipHeightIn.toFixed(4)}" · flat ${points.tipFlatIn.toFixed(3)}"`);
+          place("wall",    points.wall,    `Wall ${points.wallThicknessIn.toFixed(3)}"`);
+          place("backset", points.backset, `Backset ${points.backsetIn.toFixed(3)}"`);
+          place("chimney", points.chimney, `Chimney ${points.chimneyIn.toFixed(3)}"`);
         };
 
         let raf = null;
         const animate = () => {
           raf = requestAnimationFrame(animate);
+          // Pages are kept mounted-but-hidden (display:none) when the user
+          // switches away, not unmounted, so a bare RAF loop here would
+          // render a viewer nobody can see forever. A hidden ancestor makes
+          // clientWidth read 0 — the same check Viewer2D already uses — so
+          // skip the actual work (but keep ticking) until it's shown again.
+          if (mount.clientWidth === 0) return;
           controls.update();
           renderer.render(scene, camera);
           updateNestLabels();
@@ -2465,7 +3014,7 @@ function Flute3DViewer({
           resizeObs.observe(mount);
         }
 
-        stateRef.current = { renderer, scene, camera, controls, raf, handleResize, resizeObs, mount, ambientLight, key, fill, showNestLabels };
+        stateRef.current = { renderer, scene, camera, controls, raf, handleResize, resizeObs, mount, ambientLight, key, fill, showNestLabels, dimVis };
         setBuilding(false);
       } catch (err) {
         console.error("[Flute3DViewer] CSG build failed:", err);
@@ -2508,13 +3057,13 @@ function Flute3DViewer({
       Object.values(nestLabelRefs.current).forEach(el => { if (el) el.style.display = "none"; });
       stateRef.current = {};
     };
-  }, [JSON.stringify(chambers), curve, pipeMaterial, holeShape, birdKey, birdHeight, surfaceRoughness, surfaceMetalness, droneBody]);
+  }, [JSON.stringify(chambers), curve, pipeMaterial, holeShape, birdKey, birdHeight, surfaceRoughness, surfaceMetalness, droneBody, woodSpecies]);
 
   // showNestLabels toggles independently of the (expensive) geometry
   // rebuild above — same reasoning as the lighting-intensity effect below.
   useEffect(() => {
-    if (stateRef.current) stateRef.current.showNestLabels = showNestLabels;
-  }, [showNestLabels]);
+    if (stateRef.current) { stateRef.current.showNestLabels = showNestLabels; stateRef.current.dimVis = dimVis; }
+  }, [showNestLabels, dimVis]);
 
   // Lighting intensities update live, independent of the (expensive) full
   // geometry rebuild above — adjusting a lighting slider shouldn't have to
@@ -2537,7 +3086,7 @@ function Flute3DViewer({
     <div>
       <div style={{position:"relative"}}>
         <div ref={mountRef} style={{width:"100%",height:380,borderRadius:8,overflow:"hidden",border:"1px solid #3a2a14",touchAction:"none"}}/>
-        {["ramp","sacExit","flue","tsh","fipple"].map(key => (
+        {NEST_DIM_KEYS.map(({ key }) => (
           <div key={key} ref={el => { nestLabelRefs.current[key] = el; }} style={{
             position:"absolute", top:0, left:0, display:"none", transform:"translate(-50%,-50%)",
             fontFamily:"ui-monospace,monospace", fontSize:10.5, fontWeight:600, color:"#7dd3fc",
@@ -2636,6 +3185,7 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
   const analyserRef = useRef(null);
   const rafRef      = useRef(null);
   const streamRef   = useRef(null);
+  const rootRef     = useRef(null);
 
   const startListening = async () => {
     try {
@@ -2650,9 +3200,17 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
       analyserRef.current = analyser;
       setIsListening(true);
 
+      const buf = new Float32Array(analyser.fftSize);   // reused every tick — allocating fresh here was pure GC churn at 60fps
       const tick = () => {
         if (!analyserRef.current || !audioCtxRef.current) return;
-        const buf = new Float32Array(analyserRef.current.fftSize);
+        // FlutePage/DudukPage stay mounted-but-hidden (display:none) when the
+        // user switches to a different top-level tab, same as the 3D
+        // viewers — but this loop holds a live microphone, not just a GPU
+        // scene, so pausing the math alone isn't enough: fully release the
+        // mic (and drop back to the "Start Microphone" button) the moment
+        // the tab is hidden, rather than keep recording somewhere the user
+        // can no longer see or stop it from.
+        if (rootRef.current && rootRef.current.clientWidth === 0) { stopListening(); return; }
         analyserRef.current.getFloatTimeDomainData(buf);
         const pitch = autoCorrelatePitch(buf, audioCtxRef.current.sampleRate);
 
@@ -2691,7 +3249,7 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
   const clampC  = Math.max(-50, Math.min(50, detectedCents));
 
   return (
-    <div style={{background:"#1a1208",border:`2px solid ${inTune?"#4ade80":"#5a3a18"}`,borderRadius:12,padding:20,marginTop:14,transition:"border-color 0.3s"}}>
+    <div ref={rootRef} style={{background:"#1a1208",border:`2px solid ${inTune?"#4ade80":"#5a3a18"}`,borderRadius:12,padding:20,marginTop:14,transition:"border-color 0.3s"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div style={{fontSize:18,color:"#f59e0b",fontWeight:700}}>🎤 Real-Time Tuner</div>
         <button onClick={onClose} style={{color:"#c4a97d",background:"transparent",border:"1px solid #6b5d4a",padding:"4px 14px",borderRadius:6,cursor:"pointer",fontSize:13}}>✕ Close</button>
@@ -2701,7 +3259,15 @@ function RealTuner({ rootNote, onClose, a4, NOTES }) {
         <div style={{fontSize:10,color:"#8a7255",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Target Note</div>
         <select value={targetNote} onChange={e=>setTargetNote(e.target.value)}
           style={{fontSize:20,background:"#241608",color:"#f59e0b",padding:"6px 14px",borderRadius:8,border:"1px solid #5a3a18",cursor:"pointer"}}>
-          {NOTES.map(n=><option key={n.name} value={n.name}>{n.name}</option>)}
+          {NOTE_FAMILIES_ORDER.map(fam => {
+            const inFam = NOTES.filter(n => n.family === fam);
+            if (!inFam.length) return null;
+            return (
+              <optgroup key={fam} label={fam}>
+                {inFam.map(n => <option key={n.name} value={n.name}>{n.name}</option>)}
+              </optgroup>
+            );
+          })}
         </select>
       </div>
 
@@ -2858,6 +3424,334 @@ function computeEasyModeParams(chambers, method) {
 }
 
 
+// Shared by every CAD export panel (Flute page and G-code viewer alike).
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Scans the parsed G-code for a "BODY-OUTLINE FULL CUTOUT" pass and, if
+// present, returns the TRUE finished-part silhouette per blank (as G-code
+// X/Y points) — the only toolpath in the file that traces the actual flute
+// outline rather than the rectangular stock. Both generators emit multiple
+// Z-levels retracing the identical (X,Y) path, so points are deduplicated
+// in visitation order: the first lap IS the polygon, later laps just repeat
+// it. Matches on "lower/bottom" vs "upper/top" in the comment text rather
+// than an exact label string, so it works with either generator's naming
+// (lower-nest/upper-shell, or bottom-half/top-half).
+function extractOutlinePolygons(parsed) {
+  const polys = {};
+  if (!parsed || !parsed.segments) return polys;
+  let current = null, seen = null;
+  for (const seg of parsed.segments) {
+    if (seg.type === "comment" && /outline cutout:/i.test(seg.comment || "")) {
+      current = /lower|bottom/i.test(seg.comment) ? "lower" : /upper|top/i.test(seg.comment) ? "upper" : null;
+      if (current && !polys[current]) polys[current] = [];
+      seen = new Set();
+      continue;
+    }
+    if (!current || (seg.type !== "feed" && seg.type !== "rapid")) continue;
+    const pt = seg.to;
+    if (!pt) continue;
+    const key = pt.x.toFixed(4) + "," + pt.y.toFixed(4);
+    if (!seen.has(key)) { seen.add(key); polys[current].push({ x: pt.x, y: pt.y }); }
+  }
+  Object.keys(polys).forEach(k => { if (polys[k].length < 3) delete polys[k]; }); // need at least a triangle
+  return polys;
+}
+function blockCategory(label) {
+  const l = (label || "").toLowerCase();
+  if (l.includes("lower") || l.includes("bottom")) return "lower";
+  if (l.includes("upper") || l.includes("top")) return "upper";
+  return null;
+}
+
+// Bakes the G-code viewer's CURRENT carved heightmap meshes — whatever's
+// actually shown at the current playback position, exactly as the material
+// simulation renders it — into a standalone export group. Mirrors the Flute
+// page's buildExportRoot (clone, apply world transform, scale) but also has
+// to deal with two things the flute preview never does:
+//  1. The stock shell's BoxGeometry top/bottom faces are invisible in the
+//     SCENE (the heightmap surfaces sit there instead, so the shell's own
+//     faces are marked material.visible=false) — but a mesh exporter has no
+//     notion of material visibility, so left alone the file would gain two
+//     flat rectangles right where the actually-carved surfaces are. Those
+//     groups are tagged at construction (shell.userData.stripBoxGroups) and
+//     stripped here before the geometry gets baked in.
+//  2. The rectangular stock blank is much bigger than the finished flute —
+//     it has to be, for clamping margin and the alignment-pin rails. If the
+//     program includes a Body-Outline Full Cutout pass, its toolpath IS the
+//     true finished silhouette, so each blank gets CSG-intersected against
+//     that exact outline (extruded into a tall prism) before export — the
+//     stock margin and pin rails are trimmed away, leaving just the part.
+//     Without that pass in the file, there's no toolpath anywhere that
+//     traces the true outline, so this falls back to the full stock and
+//     says so in the returned status.
+// Standard ray-casting point-in-polygon test. Robust for a simple polygon
+// of any vertex count, including the ~400-point mitered outlines these
+// files produce — no self-intersection tolerance needed since it's a
+// per-point test, not a mesh operation.
+function pointInPolygon(x, y, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+// Builds one blank's watertight solid DIRECTLY from its heightmap's raw
+// grid data (top height, bottom height, and cell spacing) — top face,
+// bottom face, and side walls wherever an included cell borders an
+// excluded one. `poly` in G-code X/Y, or null for "no clipping, include
+// every cell" (the un-trimmed fallback, when there's no outline pass).
+//
+// This deliberately does NOT go through a general mesh boolean (CSG).
+// The first attempt did, intersecting the carved mesh against an extruded
+// copy of the outline polygon — but that requires both operands to be
+// EXACTLY watertight at the vertex level, and a toolpath-derived polygon
+// (traced by the tool, subject to the G-code's own 3-decimal rounding)
+// essentially never lines up bit-for-bit with a heightmap mesh built
+// through a completely separate code path. Mesh boolean libraries are
+// notoriously fragile against exactly that kind of near-but-not-quite-
+// sealed seam, silently misclassifying inside vs outside. Deciding
+// inclusion per GRID CELL sidesteps the problem entirely: it's a simple
+// point-in-polygon test against the heightmap's own coordinates, nothing
+// for a boolean library to get confused by, and every triangle emitted
+// is built explicitly and non-indexed, so there's no shared-vertex
+// bookkeeping to get subtly wrong either.
+function buildClippedBlankSolid(hm, groundShift, poly) {
+  const { nx, ny, cellX, cellY, x0, y0, data, dataDown } = hm;
+  const inside = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * cellX, y = y0 + j * cellY;
+    inside[j * nx + i] = (!poly || pointInPolygon(x, y, poly)) ? 1 : 0;
+  }
+  const cellSolid = (i, j) => {
+    if (i < 0 || j < 0 || i >= nx - 1 || j >= ny - 1) return false;
+    return inside[j * nx + i] && inside[j * nx + i + 1] && inside[(j + 1) * nx + i] && inside[(j + 1) * nx + i + 1];
+  };
+  const topAt = (i, j) => [x0 + i * cellX, data[j * nx + i] + groundShift, -(y0 + j * cellY)];
+  const botAt = (i, j) => [x0 + i * cellX, dataDown[j * nx + i] + groundShift, -(y0 + j * cellY)];
+
+  const positions = [], normals = [];
+  const addTri = (p0, p1, p2, n) => {
+    positions.push(...p0, ...p1, ...p2);
+    normals.push(...n, ...n, ...n);
+  };
+
+  for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    if (!cellSolid(i, j)) continue;
+    const t00 = topAt(i, j), t10 = topAt(i + 1, j), t01 = topAt(i, j + 1), t11 = topAt(i + 1, j + 1);
+    addTri(t00, t10, t11, [0, 1, 0]); addTri(t00, t11, t01, [0, 1, 0]);
+    const b00 = botAt(i, j), b10 = botAt(i + 1, j), b01 = botAt(i, j + 1), b11 = botAt(i + 1, j + 1);
+    addTri(b00, b11, b10, [0, -1, 0]); addTri(b00, b01, b11, [0, -1, 0]);
+    // A wall wherever this cell borders one that ISN'T included — this is
+    // what actually forms the trimmed edge along the true outline, cell by
+    // cell, rather than needing the polygon's exact edges at all.
+    if (!cellSolid(i - 1, j)) { const n = [-1, 0, 0]; addTri(topAt(i, j), topAt(i, j + 1), botAt(i, j + 1), n); addTri(topAt(i, j), botAt(i, j + 1), botAt(i, j), n); }
+    if (!cellSolid(i + 1, j)) { const n = [1, 0, 0]; addTri(topAt(i + 1, j), botAt(i + 1, j + 1), topAt(i + 1, j + 1), n); addTri(topAt(i + 1, j), botAt(i + 1, j), botAt(i + 1, j + 1), n); }
+    if (!cellSolid(i, j - 1)) { const n = [0, 0, 1]; addTri(topAt(i, j), botAt(i + 1, j), topAt(i + 1, j), n); addTri(topAt(i, j), botAt(i, j), botAt(i + 1, j), n); }
+    if (!cellSolid(i, j + 1)) { const n = [0, 0, -1]; addTri(topAt(i, j + 1), topAt(i + 1, j + 1), botAt(i + 1, j + 1), n); addTri(topAt(i, j + 1), botAt(i + 1, j + 1), botAt(i, j + 1), n); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  return geo;
+}
+
+function buildMilledExportRoot(scaleF, parsed, regenParsed) {
+  const st = typeof window !== "undefined" && window.__gcodeViewer;
+  if (!st || !st.hms || !st.hms.length) return null;
+
+  let polys = extractOutlinePolygons(parsed);
+  let usedRegen = false;
+  // The loaded program itself may have no outline-cutout pass (that's a
+  // separate, optional CNC setting — off by default) even when it came
+  // straight from the flute calculator, which still knows the params
+  // needed to regenerate a throwaway copy WITH that pass just to trace the
+  // true outline. This never touches what's actually displayed/downloaded —
+  // it's used only to find the trim polygon.
+  if (Object.keys(polys).length === 0 && regenParsed) { polys = extractOutlinePolygons(regenParsed); usedRegen = Object.keys(polys).length > 0; }
+  const haveOutline = Object.keys(polys).length > 0;
+
+  const wrap = new THREE.Group();
+  wrap.name = "naf-milled-halves";
+  const owned = [];
+  let trimmedAny = false;
+
+  st.hms.forEach(hm => {
+    const groundShift = hm.blankGroup.position.y - (hm.top + hm.bottom) / 2;
+    const cat = blockCategory(hm.label);
+    const poly = cat ? polys[cat] : null;
+    const geo = buildClippedBlankSolid(hm, groundShift, poly || null);
+    if (poly) trimmedAny = true;
+    if (scaleF !== 1) geo.scale(scaleF, scaleF, scaleF);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.8, metalness: 0.05 }));
+    mesh.name = hm.label || "milled-part";
+    wrap.add(mesh);
+    owned.push(geo);
+  });
+
+  wrap.updateMatrixWorld(true);
+  if (!wrap.children.length) return null;
+  return {
+    wrap, dispose: () => owned.forEach(g => g.dispose()),
+    trimmed: haveOutline && trimmedAny,
+    usedRegen,
+    outlineMissing: !haveOutline,
+    clipFailed: false,
+  };
+}
+
+
+// ══ CAD MODEL EXPORT ═════════════════════════════════════════════════
+// Exports the EXACT model the 3D preview shows — the very same geometry
+// pipeline and CSG solids (bores, SAC, ramp, nest, blow channels, shaped
+// mouthpiece, bird) — as a mesh file every major CAD package reads. The
+// export pulls the live preview's built scene graph rather than rebuilding,
+// so what downloads is byte-for-byte the model on screen; display-only
+// overlays (the translucent SAC tint) are filtered out by their transparent
+// material so the file contains nothing but real flute solids.
+function CADExportPanel({ card, lbl, muted, bone, bg2, border, gold }) {
+  const [open, setOpen] = useState(false);
+  const [cadUnits, setCadUnits] = useState("mm");
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  const download = downloadBlob;
+
+  // Bake every opaque mesh of the live preview into a fresh export group:
+  // world transforms folded into the vertices (applyMatrix4 also rotates
+  // the normals), then scaled to the chosen unit. Clones only — the live
+  // scene is never touched, and every cloned geometry is disposed after.
+  const buildExportRoot = (scaleF) => {
+    const src = typeof window !== "undefined" && window.__flute3d && window.__flute3d.rootGroup;
+    if (!src) return null;
+    src.updateMatrixWorld(true);
+    const wrap = new THREE.Group();
+    wrap.name = "naf-flute";
+    const owned = [];
+    src.traverse(o => {
+      if (!o.isMesh || !o.geometry) return;
+      const m0 = Array.isArray(o.material) ? o.material[0] : o.material;
+      if (m0 && m0.transparent) return;          // display-only overlay, not wood
+      const g = o.geometry.clone();
+      g.applyMatrix4(o.matrixWorld);
+      if (scaleF !== 1) g.scale(scaleF, scaleF, scaleF);
+      const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.8, metalness: 0.05 }));
+      mesh.name = o.name || "flute-part";
+      wrap.add(mesh);
+      owned.push(g);
+    });
+    wrap.updateMatrixWorld(true);
+    if (!wrap.children.length) return null;
+    return { wrap, dispose: () => owned.forEach(g => g.dispose()) };
+  };
+
+  const runExport = async (fmt) => {
+    setMsg(null); setBusy(fmt);
+    await new Promise(r => setTimeout(r, 30));    // let the button repaint first
+    try {
+      const scaleF = cadUnits === "mm" ? 25.4 : 1;
+      const built = buildExportRoot(scaleF);
+      if (!built) {
+        setMsg({ kind: "err", text: "The 3D preview hasn't finished building yet — wait for the model to appear above, then export again." });
+        return;
+      }
+      const { wrap, dispose } = built;
+      try {
+        const base = `naf_flute_${new Date().toISOString().slice(0, 10)}_${cadUnits}`;
+        if (fmt === "stl") {
+          const res = new STLExporter().parse(wrap, { binary: true });
+          download(new Blob([res], { type: "model/stl" }), `${base}.stl`);
+        } else if (fmt === "obj") {
+          const res = new OBJExporter().parse(wrap);
+          download(new Blob([res], { type: "model/obj" }), `${base}.obj`);
+        } else if (fmt === "ply") {
+          const res = new PLYExporter().parse(wrap, () => {}, { binary: true });
+          download(new Blob([res], { type: "model/ply" }), `${base}.ply`);
+        } else if (fmt === "glb") {
+          await new Promise((resolve, reject) => new GLTFExporter().parse(
+            wrap,
+            (out) => { download(new Blob([out], { type: "model/gltf-binary" }), `${base}.glb`); resolve(); },
+            (err) => reject(err),
+            { binary: true },
+          ));
+        }
+        setMsg({ kind: "ok", text: `${fmt.toUpperCase()} exported in ${cadUnits === "mm" ? "millimetres" : "inches"} — the exact model from the 3D preview.` });
+      } finally { dispose(); }
+    } catch (err) {
+      console.error("[CAD export] failed:", err);
+      setMsg({ kind: "err", text: "Export failed: " + (err && err.message ? err.message : String(err)) });
+    } finally { setBusy(null); }
+  };
+
+  const fmts = [
+    { id: "stl", label: "🧊 STL",  sub: "binary mesh — Fusion 360, SolidWorks, FreeCAD, every slicer" },
+    { id: "obj", label: "🧱 OBJ",  sub: "mesh with named parts — Blender, Rhino, Maya, most CAD" },
+    { id: "ply", label: "🔺 PLY",  sub: "binary mesh with normals — MeshLab, CloudCompare" },
+    { id: "glb", label: "📦 GLB",  sub: "glTF 2.0 — modern viewers, Blender, web/AR" },
+  ];
+  const unitBtn = (id, label) => (
+    <button key={id} onClick={() => setCadUnits(id)} style={{
+      flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer",
+      border: `1px solid ${cadUnits === id ? gold : border}`,
+      background: cadUnits === id ? gold : bg2, color: cadUnits === id ? "#0f0801" : muted,
+    }}>{label}</button>
+  );
+
+  return (
+    <div style={card}>
+      <button onClick={() => setOpen(v => !v)} style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+        background: "none", border: "none", cursor: "pointer", padding: 0,
+      }}>
+        <span style={lbl}>📐 CAD Model Export <span style={{ color: muted, textTransform: "none", fontWeight: 400, fontSize: 10 }}>(exact 3D model — STL, OBJ, PLY, GLB)</span></span>
+        <span style={{ color: "#d4a05a", fontSize: 16, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▶</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, color: muted, lineHeight: 1.55, marginBottom: 12 }}>
+            Downloads the <strong style={{ color: bone }}>exact model shown in the 3D preview above</strong> — every
+            dimension true to your numbers: bore, SAC, ramp, flue &amp; TSH, blow channels, the shaped mouthpiece and
+            bird. Watertight tessellated solids, ready to import, measure, section, or 3D-print. (A parametric B-rep
+            STEP export needs the OpenCascade kernel — ~64&nbsp;MB — which doesn't fit this single offline file.)
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: muted, fontWeight: 700, whiteSpace: "nowrap" }}>Model units:</span>
+            {unitBtn("mm", "millimetres (CAD standard)")}
+            {unitBtn("in", "inches (as designed)")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {fmts.map(f => (
+              <button key={f.id} onClick={() => runExport(f.id)} disabled={busy !== null} style={{
+                padding: "12px 10px", borderRadius: 8, border: `1px solid ${border}`, background: bg2, color: bone,
+                fontWeight: 800, fontSize: 13, cursor: busy ? "wait" : "pointer", textAlign: "left",
+                opacity: busy && busy !== f.id ? 0.5 : 1,
+              }}>
+                <div>{busy === f.id ? "⏳ Exporting…" : f.label}</div>
+                <div style={{ fontSize: 10, color: muted, fontWeight: 400, marginTop: 3, lineHeight: 1.4 }}>{f.sub}</div>
+              </button>
+            ))}
+          </div>
+          {msg && (
+            <div style={{
+              marginTop: 10, fontSize: 11, lineHeight: 1.5, padding: "8px 10px", borderRadius: 8,
+              background: msg.kind === "err" ? "#2a1212" : "#12241a",
+              border: `1px solid ${msg.kind === "err" ? "#5a2a2a" : "#2a5a3a"}`,
+              color: msg.kind === "err" ? "#e8a0a0" : "#a0e8b8",
+            }}>{msg.text}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CNCExportPanel({ chambers, curve, droneBody = "separate", pill, card, lbl, muted, bone, bg2, border, gold }) {
   const [method, setMethod] = useState("split"); // "split" | "tube"
   const [easyMode, setEasyMode] = useState(true);
@@ -2883,9 +3777,30 @@ function CNCExportPanel({ chambers, curve, droneBody = "separate", pill, card, l
   // G-code you get is the fixed geometry — not the flagged one.
   const [fixedChambers, setFixedChambers] = useState(null);
   const [fixReport, setFixReport] = useState(null);
-  const effChambers = fixedChambers || chambers;
-  // Any edit upstream (new bore, holes, etc.) invalidates a prior fix/report.
-  useEffect(() => { setFixedChambers(null); setFixReport(null); setValidationReport(null); }, [JSON.stringify(chambers)]);
+  const [originalIssues, setOriginalIssues] = useState(null);
+  // The user can prefer their own (flagged) values: "Undo fix" reverts to
+  // them until the next upstream edit re-runs the automatic pass.
+  const [fixUndone, setFixUndone] = useState(false);
+  const [outlineMode, setOutlineMode] = useState("off");   // "off" | "scribe" | "cutout"
+  const [splitStyle, setSplitStyle] = useState("nest-insert");   // "nest-insert" (embedded acoustic nest) | "symmetric" (basic drilled layout)
+  const effChambers = (!fixUndone && fixedChambers) || chambers;
+  // Geometry validation runs BY ITSELF on every upstream change, and if
+  // anything is off it fixes it immediately and reports what it changed —
+  // no button to press. The corrected geometry then feeds every export.
+  useEffect(() => {
+    setFixUndone(false);
+    const rep = validateAllChambers(chambers);
+    if (rep.valid) {
+      setFixedChambers(null); setFixReport(null); setOriginalIssues(null);
+      setValidationReport(rep);
+      return;
+    }
+    const { chambers: fx, fixes } = fixAllChambers(chambers);
+    setFixedChambers(fx);
+    setFixReport(fixes);
+    setOriginalIssues(rep.issues);
+    setValidationReport(validateAllChambers(fx));
+  }, [JSON.stringify(chambers)]);
 
   // Easy Mode: recompute every parameter from the flute's own real
   // dimensions whenever it's on and the method (or the underlying chamber
@@ -2931,23 +3846,41 @@ function CNCExportPanel({ chambers, curve, droneBody = "separate", pill, card, l
   // carries a STOCK-FLIP marker and animates the whole process end to end.
   const buildSplitPrograms = () => {
     const common = { chambers: effChambers, units, feedRate, plungeRate, safeHeight, dialect, spindleSpeed, droneBody,
-                     curve, toolDiameter, stepdown, stockMarginX, stockMarginY, channelStyle, alignPins };
+                     curve, toolDiameter, stepdown, stockMarginX, stockMarginY, channelStyle, alignPins, splitStyle, outlinePass: outlineMode === "off" ? false : outlineMode };
+    if (splitStyle === "nest-insert") {
+      return [
+        { key: "lower", label: "1 · Lower nest", gcode: generateSplitBlockGCode({ ...common, only: "halves" }),
+          filename: `flute_nest_insert_1_lower.${ext()}`,
+          blurb: "Tall lower blank (roof face up): bottom-half bore, ramp, flue floor, SAC exit, and the nest ridge shaped to the roof radius. Zero Z on its own top face." },
+        { key: "upper", label: "2 · Upper shell", gcode: generateSplitBlockGCode({ ...common, only: "nest" }),
+          filename: `flute_nest_insert_2_upper.${ext()}`,
+          blurb: "Thin upper blank (seam face up): top-half bore, finger holes, the rectangular through-window, and the splitting-edge bevel on its downstream wall. Separate setup — zero Z on its own top face." },
+      ];
+    }
     return [
       { key: "halves", label: "1 · Halves", gcode: generateSplitBlockGCode({ ...common, only: "halves" }),
         filename: `flute_split_block_1_halves.${ext()}`,
-        blurb: "Both blanks, seam face up: blow-air, half-round bores, ramp, block wall, the splitting edge's bevel face, finger holes, pins." },
+        blurb: "Both blanks, seam face up: blow-air (undersized) and full-round SAC + sound-chamber bore (exact size) — no ramp cut, block wall left solid, finger holes (undersized), pins." },
       { key: "nest", label: "2 · Nest (top half flipped)", gcode: generateSplitBlockGCode({ ...common, only: "nest" }),
         filename: `flute_split_block_2_nest.${ext()}`,
-        blurb: "Top blank turned over, outer face up, re-zero Z: SAC exit hole, flue, TSH starting hole, the edge's tip flat + relief, and a second finger-hole pass to clean the break-out edges." },
+        blurb: "Top blank turned over, outer face up, re-zero Z: air-exit hole, flue, TSH starting hole — all undersized locating cuts — plus a second finger-hole pass. No splitting edge is machined; it's entirely hand-carved." },
     ];
   };
 
   const buildGCode = () => {
     const common = { chambers: effChambers, units, feedRate, plungeRate, safeHeight, dialect, spindleSpeed, droneBody };
     if (method === "split") {
+      // Base params without outlinePass/only — kept separately so the CAD
+      // export panel can regenerate an outline-cutout variant purely to
+      // extract the trim polygon, regardless of what this page's own
+      // Outline Pass toggle is set to (that toggle controls the ACTUAL
+      // machining file; the export's use of it is for geometry only and
+      // never changes what gets downloaded here).
+      const splitParams = { ...common, curve, toolDiameter, stepdown, stockMarginX, stockMarginY, channelStyle, alignPins, splitStyle };
       return {
-        gcode: generateSplitBlockGCode({ ...common, curve, toolDiameter, stepdown, stockMarginX, stockMarginY, channelStyle, alignPins, only: "all" }),
+        gcode: generateSplitBlockGCode({ ...splitParams, outlinePass: outlineMode === "off" ? false : outlineMode, only: "all" }),
         filename: `flute_split_block_all_ops.${ext()}`,
+        splitParams,
       };
     }
     return {
@@ -2978,8 +3911,8 @@ function CNCExportPanel({ chambers, curve, droneBody = "separate", pill, card, l
   // tabs). No URL-length limit, no external file to locate.
   const openInViewer = () => {
     if (!checkToolSafety()) return;
-    const { gcode, filename } = buildGCode();
-    window.dispatchEvent(new CustomEvent("naf-open-gcode-viewer", { detail: { gcode, filename } }));
+    const { gcode, filename, splitParams } = buildGCode();
+    window.dispatchEvent(new CustomEvent("naf-open-gcode-viewer", { detail: { gcode, filename, splitParams } }));
   };
 
   return (
@@ -3032,6 +3965,27 @@ function CNCExportPanel({ chambers, curve, droneBody = "separate", pill, card, l
           <div style={{display:"flex",gap:6}}>
             <button onClick={()=>setChannelStyle("round")} style={{...pill(channelStyle==="round"),flex:1,padding:"8px 0",fontSize:12}}>Round (ball-nose)</button>
             <button onClick={()=>setChannelStyle("flat")} style={{...pill(channelStyle==="flat"),flex:1,padding:"8px 0",fontSize:12}}>Flat-bottom</button>
+          </div>
+        </div>
+      )}
+      {method === "split" && (
+        <div style={{padding:"9px 12px",marginBottom:12,background:bg2,border:`1px solid ${border}`,borderRadius:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:12.5,color:bone,fontWeight:700,whiteSpace:"nowrap"}}>Sound mechanism</span>
+            <div style={{display:"flex",gap:6,flex:1,minWidth:260}}>
+              {[["nest-insert","Embedded nest"],["symmetric","Basic drilled layout"]].map(([id,label]) => (
+                <button key={id} onClick={()=>setSplitStyle(id)} style={{
+                  flex:1,padding:"6px 8px",borderRadius:7,fontSize:11.5,fontWeight:800,cursor:"pointer",
+                  border:`1px solid ${splitStyle===id ? gold : border}`,
+                  background: splitStyle===id ? gold : "#1c242c",
+                  color: splitStyle===id ? "#0f0801" : muted,
+                }}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{fontSize:10.5,color:muted,marginTop:6,lineHeight:1.45}}>
+            {splitStyle === "nest-insert" && "Embedded acoustic nest (default): a TALL lower half is faced to the seam plane with the whole nest left standing — bottom-half bore, ramp, flue floor, SAC exit, ridge shaped to the inner roof radius. The thin upper shell gets the FULL rectangular nest window per chamber (SAC exit → splitting edge) — the nest rises through it and the bird straps over it to roof the flue. No flip — each blank is cut single-sided. Drone chambers get their own lane, nest and window in the same two blanks (one-piece body)."}
+            {splitStyle === "symmetric" && "Basic drilled layout: two identical half-round blanks. The SAC and the full bore are cut at exact design size; the blow hole, finger holes, flue, air-exit hole and TSH are all cut ~2mm SMALLER than designed as locating guides. The ramp and the splitting edge (bevel, tip, relief) are NOT machined at all — hand-carve and voice those yourself. The top half is flipped once for the nest pass. Works for drones."}
           </div>
         </div>
       )}
@@ -3130,52 +4084,68 @@ auto-sized dowels ({SPLIT_FIT.pinSizes.map(p=>p+'″').join('/')}) · snug in th
         </label>
       )}
 
+      {method === "split" && (
+        <div style={{padding:"9px 12px",marginBottom:10,background:bg2,border:`1px solid ${border}`,borderRadius:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:12.5,color:bone,fontWeight:700,whiteSpace:"nowrap"}}>Body outline pass</span>
+            <div style={{display:"flex",gap:6,flex:1,minWidth:260}}>
+              {[["off","Off"],["scribe","Scribe line"],["cutout","Full cutout"]].map(([id,label]) => (
+                <button key={id} onClick={()=>setOutlineMode(id)} style={{
+                  flex:1,padding:"6px 8px",borderRadius:7,fontSize:11.5,fontWeight:800,cursor:"pointer",
+                  border:`1px solid ${outlineMode===id ? gold : border}`,
+                  background: outlineMode===id ? gold : "#1c242c",
+                  color: outlineMode===id ? "#0f0801" : muted,
+                }}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{fontSize:10.5,color:muted,marginTop:6,lineHeight:1.4}}>
+            {outlineMode === "off" && "No outline pass — the flipped top blank keeps its rectangular face."}
+            {outlineMode === "scribe" && "One deep reference groove of the finished body's silhouette, traced dead-centre as the job's last pass — the line to saw & round the glue-up to."}
+            {outlineMode === "cutout" && "Profile-cuts the body silhouette clear THROUGH BOTH blanks (bottom + flipped top) as the job's last passes, tool-radius compensated outward. 6 tabs per half stay standing so each body half remains attached to the waste rails carrying the alignment pins — glue up with the pins still registered, then break or saw the tabs off."}
+          </div>
+        </div>
+      )}
+
       {warning && (
         <div style={{fontSize:12,color:"#fca5a5",background:"#2a1208",border:"1px solid #7a4a30",borderRadius:6,padding:"8px 12px",marginBottom:10}}>
           {warning}
         </div>
       )}
 
-      <button onClick={()=>setValidationReport(validateAllChambers(effChambers))} style={{
-        width:"100%",padding:"9px",borderRadius:8,border:`1px solid ${border}`,background:bg2,color:bone,
-        fontWeight:700,fontSize:12.5,cursor:"pointer",marginBottom:10,
-      }}>
-        ✓ Run Geometry Validation
-      </button>
-      {validationReport && (
-        <div style={{
-          fontSize:11.5,borderRadius:6,padding:"10px 12px",marginBottom:10,
-          background: validationReport.valid ? "#14251a" : "#2a1208",
-          border:`1px solid ${validationReport.valid ? "#3a5a3a" : "#7a4a30"}`,
-          color: validationReport.valid ? "#7acc44" : "#fca5a5",
-        }}>
-          {validationReport.valid
-            ? (fixedChambers
-                ? "✓ Geometry fixed — the flagged values were corrected to the shared formulas, and every export below now uses the corrected geometry."
-                : "✓ All chamber geometry checks passed — hole positions, sound hole dimensions, and SAC length all agree with the shared formulas used by every output (table, 3D, drilling template, PDF, G-code).")
-            : (
-              <>
-                <div style={{fontWeight:700,marginBottom:6}}>⚠ {validationReport.issues.length} geometry issue{validationReport.issues.length>1?"s":""} found:</div>
-                {validationReport.issues.map((issue,i) => <div key={i} style={{marginBottom:3}}>• {issue}</div>)}
-                <button onClick={()=>{
-                  const { chambers: fx, fixes } = fixAllChambers(effChambers);
-                  setFixedChambers(fx);
-                  setFixReport(fixes);
-                  setValidationReport(validateAllChambers(fx));
-                }} style={{
-                  marginTop:10,width:"100%",padding:"8px",borderRadius:6,border:"1px solid #b7791f",
-                  background:"#3a2a10",color:"#fcd34d",fontWeight:800,fontSize:12,cursor:"pointer",
-                }}>
-                  🔧 Fix these automatically
-                </button>
-              </>
-            )}
+      {/* Geometry validation runs automatically (see the effect above): if
+          the numbers disagree with the shared formulas they are corrected on
+          the spot, the corrections are listed, and every export uses the
+          fixed geometry — unless the user presses Undo to keep their own. */}
+      {validationReport && validationReport.valid && !fixedChambers && (
+        <div style={{fontSize:11.5,borderRadius:6,padding:"9px 12px",marginBottom:10,background:"#14251a",border:"1px solid #3a5a3a",color:"#7acc44"}}>
+          ✓ Geometry auto-validated — hole positions, sound hole dimensions, and SAC length all agree with the shared formulas used by every output (table, 3D, drilling template, PDF, G-code).
         </div>
       )}
-      {fixReport && fixReport.length > 0 && (
-        <div style={{fontSize:11,borderRadius:6,padding:"9px 12px",marginBottom:10,background:"#101a24",border:"1px solid #24435e",color:"#9dc7e8"}}>
-          <div style={{fontWeight:700,marginBottom:5,color:"#bfe0ff"}}>🔧 {fixReport.length} correction{fixReport.length>1?"s":""} applied:</div>
-          {fixReport.map((f,i) => <div key={i} style={{marginBottom:3}}>• {f}</div>)}
+      {fixedChambers && !fixUndone && (
+        <div style={{fontSize:11.5,borderRadius:6,padding:"10px 12px",marginBottom:10,background:"#14251a",border:"1px solid #3a5a3a",color:"#a0e8b8"}}>
+          <div style={{fontWeight:800,marginBottom:6,color:"#7acc44"}}>
+            🔧 {originalIssues ? originalIssues.length : 0} geometry issue{originalIssues && originalIssues.length !== 1 ? "s" : ""} found &amp; fixed automatically — every export below uses the corrected geometry.
+          </div>
+          {fixReport && fixReport.map((f,i) => <div key={i} style={{marginBottom:3}}>• {f}</div>)}
+          <button onClick={()=>setFixUndone(true)} style={{
+            marginTop:10,width:"100%",padding:"7px",borderRadius:6,border:`1px solid ${border}`,
+            background:"none",color:muted,fontWeight:700,fontSize:11.5,cursor:"pointer",
+          }}>
+            ↩ Undo fix — keep my original values
+          </button>
+        </div>
+      )}
+      {fixedChambers && fixUndone && (
+        <div style={{fontSize:11.5,borderRadius:6,padding:"10px 12px",marginBottom:10,background:"#2a1208",border:"1px solid #7a4a30",color:"#fca5a5"}}>
+          <div style={{fontWeight:800,marginBottom:6}}>⚠ Fix undone — exports use YOUR original values, which failed these checks:</div>
+          {originalIssues && originalIssues.map((issue,i) => <div key={i} style={{marginBottom:3}}>• {issue}</div>)}
+          <button onClick={()=>setFixUndone(false)} style={{
+            marginTop:10,width:"100%",padding:"8px",borderRadius:6,border:"1px solid #b7791f",
+            background:"#3a2a10",color:"#fcd34d",fontWeight:800,fontSize:12,cursor:"pointer",
+          }}>
+            🔧 Re-apply the automatic fix
+          </button>
         </div>
       )}
 
@@ -3622,6 +4592,7 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
   const analyserRef = useRef(null);
   const rafRef      = useRef(null);
   const streamRef   = useRef(null);
+  const rootRef     = useRef(null);
 
   const startListening = async () => {
     try {
@@ -3636,9 +4607,14 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
       analyserRef.current = analyser;
       setIsListening(true);
 
+      const buf = new Float32Array(analyser.fftSize);   // reused every tick — allocating fresh here was pure GC churn at 60fps
       const tick = () => {
         if (!analyserRef.current || !audioCtxRef.current) return;
-        const buf = new Float32Array(analyserRef.current.fftSize);
+        // Same background-mic story as the Real-Time Tuner: this panel
+        // stays mounted-but-hidden on a top-level tab switch, so release
+        // the microphone once it can no longer be seen rather than keep
+        // recording and running pitch detection on an invisible panel.
+        if (rootRef.current && rootRef.current.clientWidth === 0) { stopListening(); return; }
         analyserRef.current.getFloatTimeDomainData(buf);
         const pitch = autoCorrelatePitch(buf, audioCtxRef.current.sampleRate);
 
@@ -3686,7 +4662,7 @@ function ProgressiveTuningAssistant({ chamber, a4, NOTES }) {
   }
 
   return (
-    <div>
+    <div ref={rootRef}>
       <div style={{fontSize:12,color:"#8a7255",lineHeight:1.6,marginBottom:14}}>
         Drill and test one step at a time, opening holes from the mouth end toward the foot (the smallest pitch jump first, largest last — matching standard NAF fingering). At each step, cover the holes shown, blow a steady breath, and compare against the expected pitch below before enlarging or moving to the next hole.
       </div>
@@ -4180,6 +5156,83 @@ function drawTuningGuidePage(doc, data) {
   doc.text("in the app's Progressive Tuning Assistant.", 0.8, y);
 }
 
+// ── PAGE: Fingering Chart ───────────────────────────────────────
+// A quick-reference, at-a-glance chart — every playable note laid out in
+// one row, as opposed to the Tuning Guide's step-by-step drilling
+// walkthrough above. Meant to go home with the player/customer, not stay
+// at the bench. Only the primary scale is shown: it's derived directly
+// from the same SCALE_CONFIGS ratios and hole numbering the rest of the
+// app already uses (the same open-hole rule the Progressive Tuning
+// Assistant fingers with: a hole is open once its number is at or above
+// the current step's threshold, opening mouth-ward hole first). Cross-
+// fingerings for in-between notes aren't modeled anywhere in this app and
+// would vary by instrument, so they're deliberately left off rather than
+// guessed at.
+function drawFingeringChartPage(doc, data) {
+  const { holeCount, rootNote, a4, NOTES } = data;
+  doc.addPage("letter", "portrait");
+  pageHeader(doc, "Fingering Chart", "Cover = root note. Each note opens one more hole, mouth end toward foot.");
+
+  const config = SCALE_CONFIGS[holeCount];
+  const rootFreq = NOTES.find(n => n.name === rootNote.name)?.freq;
+  const orderedHoles = config ? [...config.holes].sort((a,b) => b.num - a.num) : [];
+
+  const notes = [
+    { note: rootNote.name, sub: "all closed", freq: rootFreq, openCount: 0 },
+    ...orderedHoles.map((h, i) => ({
+      sub: h.interval,
+      note: rootFreq ? nearestNote(rootFreq * h.ratio, NOTES).name : "--",
+      freq: rootFreq ? rootFreq * h.ratio : null,
+      openCount: i + 1,
+    })),
+  ];
+
+  const left = 0.9, right = 7.6, top = 1.7;
+  const colW = (right - left) / notes.length;
+  const holeGap = 0.34, holeRad = 0.09;
+  const stackTop = top + 0.55;
+
+  // Hole-number legend down the left edge (mouth at top, foot at bottom —
+  // same order as holding the instrument upright to play it).
+  doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(120,120,120);
+  orderedHoles.forEach((h, i) => doc.text(`H${h.num}`, left - 0.28, stackTop + i*holeGap + 0.03, {align:"right"}));
+  doc.setTextColor(0,0,0);
+
+  notes.forEach((n, ci) => {
+    const cx = left + colW*ci + colW/2;
+
+    doc.setFont("helvetica","bold"); doc.setFontSize(11.5);
+    doc.text(n.note, cx, top, {align:"center"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(120,120,120);
+    doc.text(n.sub, cx, top + 0.16, {align:"center"});
+    doc.setTextColor(0,0,0);
+
+    orderedHoles.forEach((h, ri) => {
+      const cy = stackTop + ri*holeGap;
+      const isOpen = ri < n.openCount; // mirrors the app's own isOpen = h.num >= threshold rule
+      doc.setDrawColor(20,20,20); doc.setLineWidth(0.014);
+      if (isOpen) {
+        doc.circle(cx, cy, holeRad);
+      } else {
+        doc.setFillColor(20,20,20);
+        doc.circle(cx, cy, holeRad, "F");
+      }
+    });
+
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,120,120);
+    doc.text(n.freq ? `${fmt(n.freq,0)} Hz` : "--", cx, stackTop + orderedHoles.length*holeGap + 0.22, {align:"center"});
+    doc.setTextColor(0,0,0);
+  });
+
+  let y = stackTop + orderedHoles.length*holeGap + 0.55;
+  doc.setDrawColor(200,150,50); doc.setLineWidth(0.015); doc.line(0.8, y, 7.7, y); y += 0.25;
+  doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(90,90,90);
+  doc.text("Filled circle = hole covered. Open circle = hole open. Shown mouth end (top) to foot end (bottom), matching how you'd hold the flute.", 0.8, y, {maxWidth: 6.9}); y += 0.24;
+  doc.text("This covers the primary scale only \u2014 half-holing and cross-fingerings for notes in between depend on the", 0.8, y, {maxWidth: 6.9}); y += 0.2;
+  doc.text("individual instrument and aren't predicted here; find them by ear.", 0.8, y, {maxWidth: 6.9});
+  doc.setTextColor(0,0,0);
+}
+
 // ── PAGE: Sanding Checklist ─────────────────────────────────────
 function drawSandingChecklistPage(doc, data) {
   const { pipeMaterial } = data;
@@ -4403,7 +5456,15 @@ function generateSplitBlockGCode(params) {
   const {
     chambers, curve, units, toolDiameter, stepdown, feedRate, plungeRate,
     safeHeight, stockMarginX, stockMarginY, channelStyle, dialect, spindleSpeed,
-    droneBody = "separate", alignPins = true,
+    droneBody = "separate", alignPins = true, outlinePass = false,
+    // "symmetric" — the classic split at the bore axis (two identical blanks,
+    //               top flipped for the nest).
+    // "nest-insert" — the acoustic-nest architecture: a TALL lower half that
+    //               carries the whole nest (ramp, flue floor, SAC exit) up to
+    //               the inner roof, and a thin upper SHELL whose rectangular
+    //               through-window's downstream edge is the splitting edge.
+    //               No flip: each blank is cut single-sided. Single chamber.
+    splitStyle = "symmetric",
     // Which program to emit:
     //   "halves" — Op 1A + 1B (both blanks, seam face up)
     //   "nest"   — Op 1C only (top blank flipped, its own work zero)
@@ -4418,9 +5479,17 @@ function generateSplitBlockGCode(params) {
   const lines = [];
   const maxLen = Math.max(...chambers.map(c => c.sacLen + c.L));
   const oneBlank = chambers.length > 1 && droneBody === "solid";
-  const yOffs = oneBlank ? chamberYOffsets(chambers) : chambers.map(() => 0);
+  // ── HANDEDNESS ── The 3D model stacks chambers along +Z with the nest
+  // facing +Y; the machined assembly ends nest-up on the table with its
+  // layout along +Y. Viewed from the NEST side with the mouth to the
+  // left, model +Z runs DOWN-screen but table +Y runs UP-screen — so
+  // mapping the offsets with the same sign built the MIRROR of the
+  // modelled flute (drone on the player's wrong side). The table layout
+  // must run OPPOSITE to the model stack: mirror the offsets in-span.
+  const yOffsAsc = oneBlank ? chamberYOffsets(chambers) : chambers.map(() => 0);
+  const yOffs = yOffsAsc.map(v => yOffsAsc[yOffsAsc.length - 1] - v);
   const blankWidth = oneBlank
-    ? (yOffs[yOffs.length - 1] + chambers[chambers.length - 1].bore / 2 + chambers[0].bore / 2 + 2 * stockMarginY)
+    ? (Math.max(...yOffs.map((v, i) => v + chambers[i].bore / 2)) - Math.min(...yOffs.map((v, i) => v - chambers[i].bore / 2)) + 2 * stockMarginY)
     : Math.max(...chambers.map(c => c.bore)) + 2 * stockMarginY;
   let blankLen = maxLen + 2 * stockMarginX;   // grown below to carry the mouthpiece
 
@@ -4461,6 +5530,765 @@ function generateSplitBlockGCode(params) {
              tshCutDepth, tipHeight, tipFlat, xTsh0, xTsh1, xFlue0, xExit0, xExit1, xBlockEnd, xRampBase, rampRun };
   });
 
+  // ══════════════════════════════════════════════════════════════════
+  //  NEST-INSERT ARCHITECTURE (acoustic-nest split) — single chamber
+  // ══════════════════════════════════════════════════════════════════
+  //  A TALL lower half carries the whole nest; a thin upper SHELL carries a
+  //  rectangular through-window whose downstream edge is the splitting edge.
+  //  Section along the flute (mouth left):
+  //
+  //     UPPER SHELL  (r+wall)   top-half bore + finger holes + WINDOW ────┐
+  //     ══ seam @ bore axis ══════════════════════════   (through)  labium┘
+  //     LOWER NEST   (2r+wall)  bottom-half bore + ramp + flue + SAC-exit
+  //                             nest ridge follows the roof radius
+  //
+  //  Lower half, Z0 = the roof (nest peak):  roof 0 · axis −r · floor −2r
+  //  Upper half, Z0 = the seam (bore axis):  axis 0 · roof −r · outer −(r+wall)
+  //  No flip: each blank is cut in ONE face-up setup.
+  if (splitStyle === "nest-insert") {
+    // ── LANES ── chambers sit side-by-side in the SAME two blanks (one-piece
+    // body), each on its own Y lane, mirrored in-span exactly like the
+    // symmetric one-blank layout so the assembly matches the 3D model.
+    const laneAsc = chamberYOffsets(chambers);
+    const lane = laneAsc.map(v => laneAsc[laneAsc.length - 1] - v);
+    const rMax = Math.max(...nest.map(nn => nn.r));
+    const dropMax = Math.max(...nest.map(nn => nn.r + nn.wallT));
+    const zSeam = -rMax;                 // the bore-axis plane in LOWER-blank Z (Z0 = tallest ridge peak)
+    const Tlow = rMax + dropMax;         // lower/nest blank thickness (single chamber: 2r + wall)
+    const Tup = dropMax;                 // upper/shell blank thickness (single chamber: r + wall)
+    const yMinB = Math.min(...lane.map((v, i) => v - chambers[i].bore / 2)) - stockMarginY;
+    const yMaxB = Math.max(...lane.map((v, i) => v + chambers[i].bore / 2)) + stockMarginY;
+    const bw = yMaxB - yMinB;
+    const yMidLanes = (Math.min(...lane) + Math.max(...lane)) / 2;
+    const tableGap = 0.6;
+    const yTableShift = (yMaxB - yMinB) + tableGap; // shell blank sits this far up in +Y
+    const wantLower = only !== "nest";   // Operation A — lower nest blank
+    const wantUpper = only !== "halves"; // Operation B — upper shell blank
+    const totalLenOf = (cc) => cc.sacLen + cc.L;
+    const maxLenNI = Math.max(...chambers.map(totalLenOf));
+    const step = Math.max(0.01, toolDiameter * 0.4);
+    const toolR = toolDiameter / 2;
+    const ballR = channelStyle === "round" ? toolR : 0;
+    const retract = Math.min(0.15, Math.max(0.05, safeHeight / 3));
+    const bow = (x) => (bowAmp === 0 ? 0 : bowAmp * Math.sin((x / maxLenNI) * Math.PI));
+    // ── SHARED MOUTHPIECE / CONVERGING BLOW CHANNELS ── same rules as the
+    // symmetric layout: every chamber breathes through its OWN channel from
+    // its inlet slot to its SAC lane; inlets are assigned by SAC Y rank so
+    // the fan never crosses itself; adjacent holes are auto-reduced if they'd
+    // meet with less than a wood web between them.
+    const bhWs = chambers.map(c => Number.isFinite(c.breathHoleWidthIn) ? c.breathHoleWidthIn : FLUTE_CONST.breathHoleWidth(c.bore));
+    const bhLs = chambers.map(c => Number.isFinite(c.breathHoleLengthIn) ? c.breathHoleLengthIn : FLUTE_CONST.breathHoleLength(c.bore));
+    const MOUTH_EDGE_GAP = 0.10;
+    const converge = chambers.length > 1;
+    let bhScaleNote = null;
+    if (converge) {
+      let f = 1;
+      for (let i = 0; i < chambers.length - 1; i++) {
+        const centerDist = Math.abs(lane[i + 1] - lane[i]);
+        const need = (bhWs[i] + bhWs[i + 1]) / 2;
+        const avail = centerDist - 0.06;
+        if (avail > 0.02 && need > avail) f = Math.min(f, avail / need);
+      }
+      if (f < 0.999) {
+        for (let i = 0; i < bhWs.length; i++) bhWs[i] = Math.max(0.12, bhWs[i] * f);
+        bhScaleNote = `BREATH HOLES AUTO-REDUCED x${f.toFixed(2)} (to Ø${bhWs.map(w => fmt(toUnits(w, units), 3)).join("/")}${units}) so adjacent blow channels keep a solid wood web — every chamber breathes through its OWN separate channel.`;
+      }
+    }
+    const mouthYs = (() => {
+      if (!converge) return chambers.map((_, i) => lane[i]);
+      const rank = chambers.map((_, i) => i).sort((a, b2) => lane[a] - lane[b2]);
+      const spread = bhWs.reduce((s2, w) => s2 + w, 0) + MOUTH_EDGE_GAP * (chambers.length - 1);
+      const slots = [];
+      let yCur = yMidLanes - spread / 2;
+      rank.forEach(i => { slots[i] = yCur + bhWs[i] / 2; yCur += bhWs[i] + MOUTH_EDGE_GAP; });
+      return slots;
+    })();
+    const convergeRun = chambers.map((c, i) => {
+      const dy = Math.abs(lane[i] - mouthYs[i]);
+      return Math.min(Math.max(bhLs[i], dy * 2.75), Math.max(bhLs[i], c.sacLen * 0.45));
+    });
+    // mouthpiece plan outline: wide enough to span every lane AND every inlet
+    const mpR = dropMax;
+    const mpHalfW = (Math.max(...lane) - Math.min(...lane)) / 2 + mpR;
+    const mpSpreadHalf = (converge ? Math.max(...mouthYs.map(y => Math.abs(y - yMidLanes))) : 0) + Math.max(...bhWs) * 0.5;
+    const mpTipW = Math.min(0.92, Math.max(0.4, (mpSpreadHalf + 0.05) / mpHalfW)); // never narrower than the blow holes
+    const mpProf = (t) => Math.pow(Math.cos(t * Math.PI / 2), 0.62);
+    const mpDomeLen = Math.max(0.5, mpR * 1.5), mpCapLen = mpDomeLen * 0.3;
+    const mpWidthAt = (x) => { const d = -x; if (d <= 0) return mpHalfW;
+      if (d <= mpDomeLen) return mpHalfW * (mpTipW + (1 - mpTipW) * mpProf(d / mpDomeLen));
+      if (d <= mpDomeLen + mpCapLen) return mpHalfW * mpTipW * Math.cos(Math.asin(Math.min(1, (d - mpDomeLen) / mpCapLen))); return 0; };
+    const mpFront = mpDomeLen + mpCapLen + Math.max(0.15, toolDiameter);
+    const xBlank0 = -mpFront;
+    const blankLenNI = maxLenNI + mpFront + stockMarginX;
+    const xInlet = -(mpDomeLen + mpCapLen) - Math.max(0.1, toolDiameter / 2);
+    // Y mappers. Lower lanes as laid out. The shell is turned over ONCE at
+    // glue-up — a physical flip mirrors about the BLANK's own midline (not
+    // the lane midline: with unequal bores those differ), so the shell's
+    // features must be pre-mirrored about the blank midline to land on the
+    // lower lanes after the flip.
+    const yMirror = (yMinB + yMaxB) / 2;
+    const yLow = (ci) => (x) => lane[ci] + bow(x);
+    const yUp = (ci) => (x) => yTableShift + 2 * yMirror - lane[ci] - bow(x);
+
+    // ── NEST-INSERT RAMP GEOMETRY, per chamber ── the ramp climbs from the
+    // SAC BORE FLOOR all the way UP TO THE FLUE FLOOR (rise = 2r − flueD):
+    // the classic NAF anatomy where the "SAC exit" is simply where the ramp
+    // emerges onto the plateau. It tops out at exactly (roof − flueD), dead
+    // level with the flue floor, so the two surfaces meet seamlessly. The
+    // run is sized to hold the DESIGN ANGLE over that full rise; above the
+    // seam the ramp narrows to a throat-width TONGUE (it is climbing through
+    // the ridge). Flow Studio's ramp style carries straight through: a
+    // straight ramp is linear, a CURVED ramp uses the same scoop bezier the
+    // 3D preview lofts, scaled to the full rise — and its inverse drives the
+    // level clipping, so the bore sweep hugs the true scoop, not a chord.
+    const niRamp = chambers.map((c2, ci) => {
+      const n2 = nest[ci], r2 = n2.r;
+      const rise = 2 * r2 - n2.flueD;                       // bore floor → flue floor
+      const zTopRel = r2 - n2.flueD;                        // seam-relative ramp top
+      const runWant = rise / Math.tan(Math.max(4, n2.rampDeg) * Math.PI / 180);
+      // The ramp must NEVER consume the room the blow-channel convergence
+      // needs upstream of it — on a large bore (a big rise) with a short
+      // SAC, the design-angle run can exceed the whole SAC, and clipping
+      // xBase to 0 crushes the convergence sweep down to a zero-length
+      // dogleg right at the mouth face (the channel still lands on the
+      // right lane, but with no run to get there smoothly). Reserve that
+      // room and let the ramp go steeper than requested if it has to —
+      // physically consistent (same rise, less run), just noted below.
+      const blowReserve = Math.max(0.25, FLUTE_CONST.breathHoleLength(c2.bore) * 0.6);
+      const maxRun = Math.max(0.05, n2.xExit1 - blowReserve);
+      const run = Math.min(runWant, Math.max(0.15, c2.sacLen * 0.7), maxRun);
+      const steepened = run < runWant - 1e-4;
+      const xBase = Math.max(0, n2.xExit1 - run);
+      const lut = n2.rampCurve <= 0.01 ? null : (() => {
+        const x0b = xBase, x1b = n2.xExit1, z0b = -r2, z1b = zTopRel;
+        const mxb = (x0b + x1b) / 2, mzb = (z0b + z1b) / 2;
+        const cxb = mxb + n2.rampCurve * (x1b - mxb);       // → downstream corner
+        const czb = mzb + n2.rampCurve * (z0b - mzb);       // → bottom corner (concave scoop)
+        const ptsb = [];
+        for (let i = 0; i <= 96; i++) { const t = i / 96, u = 1 - t;
+          ptsb.push({ x: u*u*x0b + 2*u*t*cxb + t*t*x1b, z: u*u*z0b + 2*u*t*czb + t*t*z1b }); }
+        return ptsb;                                        // monotonic in x and z
+      })();
+      const relAt = (x) => {                                // seam-relative: −r → (r − flueD)
+        if (x <= xBase) return -r2;
+        if (x >= n2.xExit1) return zTopRel;
+        if (!lut) return -r2 + (x - xBase) * (rise / Math.max(1e-6, n2.xExit1 - xBase));
+        for (let i = 1; i < lut.length; i++) { const a = lut[i - 1], b = lut[i];
+          if (x <= b.x) return a.z + (b.z - a.z) * ((x - a.x) / Math.max(1e-9, b.x - a.x)); }
+        return zTopRel;
+      };
+      const xAtRel = (zRel) => {                            // deepest X reachable at a level
+        if (zRel >= zTopRel) return n2.xExit1;
+        if (zRel <= -r2) return xBase;
+        if (!lut) return xBase + (zRel + r2) * (n2.xExit1 - xBase) / Math.max(1e-6, rise);
+        for (let i = 1; i < lut.length; i++) { const a = lut[i - 1], b = lut[i];
+          if (zRel <= b.z) return a.x + (b.x - a.x) * ((zRel - a.z) / Math.max(1e-9, b.z - a.z)); }
+        return n2.xExit1;
+      };
+      const actualDeg = Math.atan(rise / Math.max(1e-6, run)) * 180 / Math.PI;
+      return { xBase, rise, zTopRel, relAt, xAtRel, seamX: xAtRel(0), steepened, actualDeg, blowReserve };
+    });
+
+    lines.push(...gcodeHeader(dialect, units, {
+      title: only === "halves" ? "Split-Body NEST INSERT — SETUP 1/2: LOWER NEST blank (nest face up)"
+           : only === "nest" ? "Split-Body NEST INSERT — SETUP 2/2: UPPER SHELL blank (seam face up)"
+           : "Split-Body NEST INSERT — tall lower nest + upper shell window (no flip)",
+      notes: [
+        `TABLE LAYOUT: two DIFFERENT-size blanks. LOWER (nest): ${fmt(toUnits(blankLenNI,units),2)} × ${fmt(toUnits(bw,units),2)} × ${fmt(toUnits(Tlow,units),2)} ${units} (bore-axis plane + tallest nest ridge, ~twice a symmetric half). UPPER (shell): ${fmt(toUnits(blankLenNI,units),2)} × ${fmt(toUnits(bw,units),2)} × ${fmt(toUnits(Tup,units),2)} ${units} at +Y${fmt(toUnits(yTableShift,units),2)}${units}.`,
+        `Z ZERO: each blank on its OWN top face. Each blank is machined FACE-UP in ONE setup — NO flip during machining. The upper shell is turned over ONCE at glue-up to seat on the lower nest.`,
+        `LOWER NEST HALF: the whole top is FACED DOWN to the seam (bore-axis) plane, ${fmt(toUnits(rMax,units),3)}${units} below the stock top — only the nest ridge islands are left standing, one per chamber, shaped to each chamber's inner roof radius. It carries the bottom-half bores, ramps, flue floors and SAC exits.`,
+        `UPPER SHELL HALF: top-half bores, finger holes, and one FULL rectangular THROUGH-WINDOW per chamber — the whole nest opening, SAC exit → splitting edge. The nest ridge rises through it from below: the plateau (flue floor) sits exposed in the window, and the BIRD straps over the opening to roof the flue — classic NAF anatomy with the nest carried by the lower half. The window's DOWNSTREAM edge is the SPLITTING EDGE with its bevel; the jet leaves the flue under the bird, crosses the sound-window gap, and splits on that edge.`,
+        ...(chambers.length > 1 ? [`MULTI-CHAMBER: ${chambers.length} chambers side-by-side in the SAME two blanks — nest-insert builds a ONE-PIECE body (the separate-pipes drone option applies to the other layouts). The blow channels angle inward to ONE shared mouthpiece, inlets ${fmt(toUnits(MOUTH_EDGE_GAP,units),2)}${units} apart edge-to-edge, fanned by SAC rank so no channel ever crosses another.`] : []),
+        ...(niRamp.some(nr => nr.steepened) ? [`⚠ RAMP STEEPENED on ${niRamp.map((nr,i)=>nr.steepened?`chamber ${i+1} (~${fmt(nr.actualDeg,1)}°, requested ${fmt(nest[i].rampDeg,1)}°)`:null).filter(Boolean).join(", ")}: the design-angle run would have crowded the blow channel's convergence room (or run past X0). The ramp still climbs the full bore-floor→flue-floor rise, just over less horizontal run — steeper, not shorter. Lengthen the SAC (the slider on the Flute page) or lower the ramp angle if you want the requested angle back exactly.`] : []),
+        ...(bhScaleNote ? [bhScaleNote] : []),
+        ...(outlinePass === "cutout" ? [`BODY-OUTLINE FULL CUTOUT ENABLED: the job ends by profile-cutting the finished body's plan silhouette clear THROUGH BOTH blanks (mitered cutter compensation), with 6 tabs per blank keeping each half attached to the pin-bearing waste rails through glue-up.`] : []),
+        ...(outlinePass === "scribe" ? [`BODY-OUTLINE SCRIBE requested but NOT APPLICABLE to the nest-insert split (both machined faces are glue faces, so a scribed groove would be hidden inside the glue-up) — switch to FULL CUTOUT for a machined outline.`] : []),
+        ...(only === "all" ? [`THIS COMBINED FILE cuts both blanks in one stream for the viewer. To run it as one job, SHIM the upper (shell) blank up by ${fmt(toUnits(Tlow - Tup,units),3)}${units} so both top faces are coplanar — OR run the two setup files instead, each zeroed on its own blank.`] : []),
+        ...(only === "halves" ? ["SETUP 1 OF 2 — the LOWER NEST blank only. Run the UPPER SHELL file next."] : []),
+        ...(only === "nest" ? ["SETUP 2 OF 2 — the UPPER SHELL blank only. Zero Z on its own top face."] : []),
+        `Tool: ${fmt(toUnits(toolDiameter,units),3)} ${units} ${channelStyle === "round" ? "BALL-NOSE (the bores and the curved nest ridges want it)" : "flat end mill"}.`,
+        `VERIFY IN THE VIEWER before cutting stock — confirm the faced seam plane, the standing ridge islands, and each ramp→flue→window relationship in the material simulation.`,
+      ],
+    }));
+
+    const stockLine = (label, x, y, z, lx, ly, lz) =>
+      `( STOCK-BLOCK label=${label} x=${fmt(toUnits(x,units),3)} y=${fmt(toUnits(y,units),3)} z=${fmt(toUnits(z,units),3)} lx=${fmt(toUnits(lx,units),3)} ly=${fmt(toUnits(ly,units),3)} lz=${fmt(toUnits(lz,units),3)} )`;
+    if (wantLower) lines.push(stockLine("lower-nest", xBlank0, yMinB, -Tlow, blankLenNI, bw, Tlow));
+    if (wantUpper) lines.push(stockLine("upper-shell", xBlank0, yMinB + yTableShift, -Tup, blankLenNI, bw, Tup));
+    lines.push(`S${Math.round(spindleSpeed)} M3 ( spindle on )`);
+
+    // ── helpers ──
+    const sweepHalfRound = (x0, x1, rad, zCeil, yCof, xLimitFn = null) => {
+      if (x1 <= x0 + 1e-6 || rad <= 0) return;
+      const levels = Math.max(1, Math.ceil(rad / stepdown));
+      for (let lv = 1; lv <= levels; lv++) {
+        const d = Math.min(rad, lv * (rad / levels));
+        const w = Math.sqrt(Math.max(0, rad * rad - d * d));
+        const reach = Math.max(0, w - toolR);
+        const xEnd = xLimitFn ? Math.min(x1, xLimitFn(-d)) : x1;
+        if (xEnd <= x0 + 1e-6) continue;
+        const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+        for (let p = 0; p < passes; p++) {
+          const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+          lines.push(`G0 X${fmt(toUnits(x0,units),3)} Y${fmt(toUnits(yCof(x0) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+          lines.push(`G1 Z${fmt(toUnits(zCeil - d,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          const steps = Math.max(2, Math.round(40 * (xEnd - x0) / Math.max(1e-6, maxLenNI)) + 2);
+          for (let s = 1; s <= steps; s++) { const x = x0 + (xEnd - x0) * (s / steps);
+            lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yCof(x) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+        }
+      }
+      if (ballR > 0 && rad > ballR) {
+        const arcs = Math.max(3, Math.ceil((Math.PI * rad) / step));
+        for (let a = 0; a <= arcs; a++) { const th = -Math.PI / 2 + Math.PI * (a / arcs);
+          const yo = (rad - ballR) * Math.sin(th), zr = zCeil - ((rad - ballR) * Math.cos(th) + ballR);
+          const xEnd = xLimitFn ? Math.min(x1, xLimitFn(zr - zCeil)) : x1;
+          if (xEnd <= x0 + 1e-6) continue;
+          lines.push(`G0 X${fmt(toUnits(x0,units),3)} Y${fmt(toUnits(yCof(x0) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+          lines.push(`G1 Z${fmt(toUnits(zr,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          const steps = Math.max(2, Math.round(40 * (xEnd - x0) / Math.max(1e-6, maxLenNI)) + 2);
+          for (let s = 1; s <= steps; s++) { const x = x0 + (xEnd - x0) * (s / steps);
+            lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yCof(x) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+        }
+      }
+    };
+    const pocket = (x0, x1, wide, zTop, zBot, yCof, label) => {
+      if (x1 <= x0 + 1e-6 || zBot >= zTop - 1e-6) return;
+      if (label) lines.push(`( -- ${label} -- )`);
+      const reach = Math.max(0, wide / 2 - toolR);
+      const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+      const depth = zTop - zBot;
+      const levels = Math.max(1, Math.ceil(depth / stepdown));
+      for (let lv = 1; lv <= levels; lv++) {
+        const z = zTop - Math.min(depth, lv * (depth / levels));
+        for (let p = 0; p < passes; p++) {
+          const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+          lines.push(`G0 X${fmt(toUnits(x0,units),3)} Y${fmt(toUnits(yCof(x0) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+          lines.push(`G1 Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          const steps = Math.max(2, Math.round((x1 - x0) / 0.06) + 1);
+          for (let s = 1; s <= steps; s++) { const x = x0 + (x1 - x0) * (s / steps);
+            lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yCof(x) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+        }
+      }
+    };
+
+    // ══ OPERATION A — LOWER NEST BLANK (Z0 = stock top = tallest ridge peak) ══
+    if (wantLower) {
+      lines.push("");
+      lines.push(`( ══════════ OPERATION A — LOWER NEST BLANK (tall blank, nest face up) ══════════ )`);
+      // A1. FACE the whole top down to the seam (bore-axis) plane, leaving one
+      //     rectangular ridge island per chamber over its nest zone — PLUS the
+      //     ramp TONGUE: where the ramp has climbed above the seam upstream of
+      //     the ridge front, a throat-width strip is left standing too.
+      lines.push(`( -- FACE to the seam plane Z${fmt(toUnits(zSeam,units),3)} — nest ridge islands + ramp tongues left standing -- )`);
+      {
+        const keeps = chambers.flatMap((cc, ci) => [{
+          x0: nest[ci].xExit0 - toolR, x1: nest[ci].xTsh0 + toolR,
+          yHalf: nest[ci].r + toolR, yC: lane[ci],
+          topZ: zSeam + nest[ci].r,          // this chamber's roof peak
+        }, {
+          // the ramp tongue: above-seam climb upstream of the ridge front,
+          // throat width only (its flanks were faced; the ramped slot
+          // clearing shapes its top)
+          x0: niRamp[ci].seamX - toolR, x1: nest[ci].xExit0,
+          yHalf: nest[ci].shW / 2 + toolR, yC: lane[ci],
+          topZ: zSeam + niRamp[ci].zTopRel,
+        }]).filter(k => k.x1 > k.x0 + 1e-6);
+        const levels = Math.max(1, Math.ceil(rMax / stepdown));
+        const yScan0 = yMinB + toolR * 0.5, yScan1 = yMaxB - toolR * 0.5;
+        const nScan = Math.max(2, Math.ceil((yScan1 - yScan0) / step) + 1);
+        for (let lv = 1; lv <= levels; lv++) {
+          const z = -Math.min(rMax, lv * (rMax / levels));
+          for (let sy = 0; sy < nScan; sy++) {
+            const y = yScan0 + (yScan1 - yScan0) * (sy / (nScan - 1));
+            // blocked X spans at this (y, z): ridge islands whose lane the
+            // scanline crosses AND whose material this level would bite into
+            const blocks = keeps
+              .filter(k => Math.abs(y - k.yC) < k.yHalf && z <= k.topZ + 1e-6)
+              .map(k => [k.x0, k.x1]).sort((a, b) => a[0] - b[0]);
+            // Stop at the flute's own downstream end (maxLenNI), NOT the
+            // stock's full length. Nothing on the SHELL ever reaches past
+            // it — its plain bore and every window/pocket stop at totalLen
+            // — so facing the leftover STOCK MARGIN here would thin the
+            // nest blank in a zone the shell never touches, leaving a
+            // step: this half faced flush, the other still full-thickness
+            // raw stock. Both halves now leave that margin equally
+            // untouched, ready to be trimmed off together after glue-up.
+            // Same reasoning on the upstream end: don't face further out
+            // than the mouthpiece dome itself reaches — anything further
+            // out (into xBlank0's stock-clamping margin) is untouched on
+            // the shell too, so it should stay untouched here as well.
+            let segs = [[Math.max(xBlank0, -(mpDomeLen + mpCapLen)), Math.min(xBlank0 + blankLenNI, maxLenNI)]];
+            blocks.forEach(([b0, b1]) => {
+              const out = [];
+              segs.forEach(([s0, s1]) => {
+                if (b1 <= s0 || b0 >= s1) { out.push([s0, s1]); return; }
+                if (b0 > s0) out.push([s0, b0]);
+                if (b1 < s1) out.push([b1, s1]);
+              });
+              segs = out;
+            });
+            segs.forEach(([s0, s1]) => {
+              if (s1 - s0 < toolDiameter * 0.5) return;
+              lines.push(`G0 X${fmt(toUnits(s0,units),3)} Y${fmt(toUnits(y,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              lines.push(`G1 Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+              lines.push(`G1 X${fmt(toUnits(s1,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            });
+          }
+        }
+      }
+      // A2..A6 per chamber
+      chambers.forEach((c, ci) => {
+        const n = nest[ci], r = n.r;
+        const yC = yLow(ci);
+        const totalLen = totalLenOf(c);
+        const zRoof = zSeam + r;      // this chamber's inner-roof peak
+        const bhW = bhWs[ci];         // may be auto-reduced so channels never touch
+        lines.push("");
+        lines.push(`( ── Chamber ${ci + 1}${c.label ? " — " + c.label : ""}: bore ${fmt(toUnits(c.bore,units),3)}${units} at lane Y${fmt(toUnits(lane[ci],units),3)}${units} ── )`);
+        // blow-air passage: from its inlet slot in the shared mouthpiece,
+        // through the nipple, converging onto this chamber's SAC lane. The
+        // convergence must finish before the ramp foot.
+        const xConv = Math.min(convergeRun[ci], Math.max(0.05, c.sacLen * 0.6), niRamp[ci].xBase);
+        const yIn = mouthYs[ci] + 0; // lower blank: lanes in native Y
+        lines.push(`( -- blow-air Ø${fmt(toUnits(bhW,units),3)}${units} half-round: inlet Y${fmt(toUnits(yIn,units),3)}${converge ? " (shared mouthpiece)" : ""} → SAC lane by X${fmt(toUnits(xConv,units),3)} -- )`);
+        {
+          const rad = bhW / 2;
+          const levels = Math.max(1, Math.ceil(rad / stepdown));
+          for (let lv = 1; lv <= levels; lv++) {
+            const d = Math.min(rad, lv * (rad / levels));
+            const w = Math.sqrt(Math.max(0, rad * rad - d * d));
+            const reach = Math.max(0, w - toolR);
+            const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+            for (let p = 0; p < passes; p++) {
+              const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+              lines.push(`G0 X${fmt(toUnits(xInlet,units),3)} Y${fmt(toUnits(yIn + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              lines.push(`G1 Z${fmt(toUnits(zSeam - d,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+              // straight leg through the nipple, then the convergence sweep
+              lines.push(`G1 X0.000 Y${fmt(toUnits(yIn + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+              lines.push(`G1 X${fmt(toUnits(xConv,units),3)} Y${fmt(toUnits(yC(xConv) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            }
+          }
+        }
+        // bottom-half bore. The full-round SAC bore starts where the blow
+        // channel lands on the lane and STOPS at the ridge front (xExit0):
+        // past it the ridge stands overhead, and a straight tool cutting
+        // below the seam there would drive its shank through the ridge.
+        // Everything under the ridge is reached only through the SAC-exit
+        // slot, at throat width, after that slot is opened.
+        //
+        // The ramp survives the bore sweep the same way it does in the
+        // symmetric layout: every bore level is CLIPPED where the ramp has
+        // risen above it (rampToSeal), so the wedge the ramp finish pass
+        // shapes is still standing when it runs. Straight and CURVED (Flow
+        // Studio scoop) ramps both come from the shared niRamp geometry —
+        // the curved LUT and its inverse drive the relAt/xAtRel pair, so
+        // the clipping hugs the true scoop, not a straight chord.
+        const niR = niRamp[ci];
+        // The SAC's full-round bore starts at the MOUTH FACE (x=0), exactly
+        // as the 3D model bores it — the mouthpiece dome ahead of it is the
+        // plug, pierced only by the blow channel. Drone lanes are the one
+        // exception: their converging inlet channels need solid wood to run
+        // through, so multi-chamber lanes open at the convergence landing.
+        const xSac0 = chambers.length === 1 ? 0 : xConv;
+        if (chambers.length > 1) lines.push(`( NOTE — drone lanes open full-bore at X${fmt(toUnits(xConv,units),3)} (the blow-channel landing), not the mouth face: the converging channels need the wood upstream. The SAC ahead of it is the channel volume only. )`);
+        lines.push(`( -- bottom-half bore: ceiling at the seam, floor Z${fmt(toUnits(zSeam - r,units),3)}; full width stops at the ridge front, levels clipped at the ramp so it stays standing -- )`);
+        sweepHalfRound(xSac0, n.xExit0, r, zSeam, yC, (zRel) => Math.min(n.xExit0, niR.xAtRel(zRel)));
+        if (n.xBlockEnd < n.xTsh0 - 1e-6) {
+          lines.push(`( NOTE — backset ${fmt(toUnits(n.backset,units),3)}${units}: the bore's reach-back under the flue (X${fmt(toUnits(n.xBlockEnd,units),3)}→${fmt(toUnits(n.xTsh0,units),3)}) is an UNDERCUT )`);
+          lines.push(`( beneath the standing ridge — unreachable in this no-flip architecture. The block face is cut at )`);
+          lines.push(`( the window line; carve the backset by hand through the open window if the voicing needs it. )`);
+        }
+        sweepHalfRound(Math.max(n.xBlockEnd, n.xTsh0), totalLen, r, zSeam, yC);
+        // SAC EXIT — a ramp-following slot clearing, NOT a flat pocket: the
+        // ramp's climb IS the exit. Stepped levels at throat width from the
+        // ridge top down to the seam, each level clipped in X where the ramp
+        // has risen above it, so the finished slot floor is the rising ramp
+        // emerging onto the flue-floor plateau.
+        lines.push(`( -- SAC EXIT / ramp channel — throat-width clearing over the climbing ramp, X${fmt(toUnits(niR.seamX,units),3)}→${fmt(toUnits(n.xExit1,units),3)} -- )`);
+        {
+          const xs0 = Math.max(niR.xBase, niR.seamX - 2 * toolR);
+          const reach = Math.max(0, n.shW / 2 - toolR);
+          const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+          const depth = zRoof - zSeam;
+          const levels = Math.max(1, Math.ceil(depth / stepdown));
+          for (let lv = 1; lv <= levels; lv++) {
+            const z = zRoof - Math.min(depth, lv * (depth / levels));
+            const xEnd = Math.min(n.xExit1, niR.xAtRel(z - zSeam));
+            if (xEnd <= xs0 + 1e-6) continue;
+            for (let p = 0; p < passes; p++) {
+              const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+              lines.push(`G0 X${fmt(toUnits(xs0,units),3)} Y${fmt(toUnits(yC(xs0) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              lines.push(`G1 Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+              const steps = Math.max(2, Math.round((xEnd - xs0) / 0.05) + 1);
+              for (let s = 1; s <= steps; s++) { const x = xs0 + (xEnd - xs0) * (s / steps);
+                lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yC(x) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            }
+          }
+        }
+        pocket(n.xFlue0, n.xTsh0, n.shW, zRoof, zRoof - n.flueD, yC,
+          `FLUE — ${fmt(toUnits(n.flueL,units),3)}${units} windway floor, ${fmt(toUnits(n.flueD,units),3)}${units} under the roof; the bird roofs it. The ramp arrives dead level with this floor.`);
+        // ramp finish, in two stages: full bore width for the below-seam
+        // climb in the open SAC, then throat width riding the FULL rise —
+        // bore floor to flue floor — up through the tongue and the slot.
+        lines.push(n.rampCurve > 0.01
+          ? `( -- ramp finish: CURVED (scoop ${fmt(n.rampCurve,2)}), ${fmt(n.rampDeg,1)}° chord, SAC bore floor → FLUE FLOOR (rise ${fmt(toUnits(niR.rise,units),3)}${units})${niR.steepened ? ` — STEEPENED to ~${fmt(niR.actualDeg,1)}° to leave room for the blow channel` : ""} -- )`
+          : `( -- ramp finish: ${fmt(n.rampDeg,1)}° straight face, SAC bore floor → FLUE FLOOR (rise ${fmt(toUnits(niR.rise,units),3)}${units})${niR.steepened ? ` — STEEPENED to ~${fmt(niR.actualDeg,1)}° to leave room for the blow channel` : ""} -- )`);
+        {
+          const rampStage = (xa, xb, reach, zCap) => {
+            if (xb <= xa + 1e-6) return;
+            const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+            const rSteps = Math.max(2, Math.ceil((xb - xa) / (n.rampCurve > 0.01 ? 0.012 : 0.05)));
+            for (let p = 0; p < passes; p++) {
+              const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+              const wallZ = zSeam - Math.sqrt(Math.max(0, r * r - yo * yo));  // bore wall floor at this offset
+              lines.push(`G0 X${fmt(toUnits(xa,units),3)} Y${fmt(toUnits(yC(xa) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              for (let s = 0; s <= rSteps; s++) { const x = xa + (xb - xa) * (s / rSteps);
+                const z = Math.min(zCap, Math.max(zSeam + niR.relAt(x), wallZ));
+                lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yC(x) + yo,units),3)} Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(s === 0 ? plungeRate : feedRate,units),1)}`); }
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            }
+          };
+          // below-seam climb, full bore width — it MUST end where the ramp
+          // crosses the seam (running further would plane the tongue off at
+          // seam height), and never past the ridge front either
+          rampStage(niR.xBase, Math.min(n.xExit1, Math.min(niR.seamX, n.xExit0)), Math.max(0, r - toolR), zSeam);
+          // the full rise at throat width: base → flue floor, through the
+          // tongue and the slot (cap at the ramp top = the flue floor)
+          rampStage(niR.xBase, n.xExit1, Math.max(0, Math.min(n.shW / 2, r) - toolR), zSeam + niR.zTopRel);
+        }
+        // ridge shoulders shaped to this chamber's inner roof radius, with
+        // TRUE TOOL-OFFSET so the cut surface IS the arc, not the arc plus a
+        // tool radius. Ball-nose: the tool centre rides a circle of radius
+        // (r + ball) about the bore axis, tip a ball-radius below — surface
+        // lands exactly on the roof arc, so the shell trough seats on it.
+        // Flat tool: each step's floor is the arc height at the tool's OUTER
+        // edge — the staircase sits fractionally INSIDE the arc (never proud),
+        // so the shell always closes; glue takes up the steps.
+        lines.push(`( -- nest ridge shoulders → inner roof radius (tool-offset ${channelStyle === "round" ? "ball centre on r+ball" : "flat: steps inside the arc"}), blending to the seam at ±bore-radius -- )`);
+        {
+          const x0 = n.xExit0, x1 = n.xTsh0;
+          const shoulderPass = (yo, z) => {
+            lines.push(`G0 X${fmt(toUnits(x0,units),3)} Y${fmt(toUnits(yC(x0) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+            lines.push(`G1 Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+            const steps = Math.max(2, Math.round((x1 - x0) / 0.06) + 1);
+            for (let s = 1; s <= steps; s++) { const x = x0 + (x1 - x0) * (s / steps);
+              lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yC(x) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+            lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+          };
+          if (ballR > 0) {
+            const th0 = Math.asin(Math.min(1, (n.shW / 2) / r));   // contact starts at the window wall
+            const arcs = Math.max(3, Math.ceil(((Math.PI / 2 - th0) * (r + ballR)) / step));
+            for (let side = -1; side <= 1; side += 2) {
+              for (let a = 0; a <= arcs; a++) {
+                const th = th0 + (Math.PI / 2 - th0) * (a / arcs);
+                const yo = side * (r + ballR) * Math.sin(th);
+                const z = Math.max(zSeam, zSeam + (r + ballR) * Math.cos(th) - ballR);
+                shoulderPass(yo, z);
+              }
+            }
+          } else {
+            const yStart = n.shW / 2 + toolR;                      // inner edge of the flat lands at the window wall
+            const arcs = Math.max(2, Math.ceil(((r + toolR) - yStart) / step) + 1);
+            for (let side = -1; side <= 1; side += 2) {
+              for (let a = 0; a <= arcs; a++) {
+                const yoAbs = yStart + ((r + toolR) - yStart) * (a / arcs);
+                const contact = Math.min(r, yoAbs + toolR);        // floor from the OUTER edge: never proud of the arc
+                const z = Math.max(zSeam, zSeam + Math.sqrt(Math.max(0, r * r - contact * contact)));
+                shoulderPass(side * yoAbs, z);
+              }
+            }
+          }
+        }
+      });
+    } // end wantLower (Operation A)
+
+    // ══ OPERATION B — UPPER SHELL BLANK (Z0 = seam/bore-axis face) ══════
+    if (wantUpper) {
+      lines.push("");
+      lines.push(`( ══════════ OPERATION B — UPPER SHELL BLANK (thin blank, seam face up at +Y) ══════════ )`);
+      lines.push(`( Y-mirrored about the lane midline — the shell is turned over ONCE onto the nest at glue-up. )`);
+      chambers.forEach((c, ci) => {
+        const n = nest[ci], r = n.r;
+        const yC = yUp(ci);
+        const totalLen = totalLenOf(c);
+        lines.push("");
+        lines.push(`( ── Chamber ${ci + 1}${c.label ? " — " + c.label : ""} (shell) ── )`);
+        // blow-air passage TOP half — the mirror of the lower channel: from
+        // this chamber's inlet slot, through the nipple, converging onto the
+        // lane. Mirrored about the blank midline like every shell feature.
+        const xConv = Math.min(convergeRun[ci], Math.max(0.05, c.sacLen * 0.6), niRamp[ci].xBase);
+        const yInUp = yTableShift + 2 * yMirror - mouthYs[ci];
+        lines.push(`( -- blow-air top half Ø${fmt(toUnits(bhWs[ci],units),3)}${units}: inlet Y${fmt(toUnits(yInUp,units),3)}${converge ? " (shared mouthpiece, mirrored)" : ""} → lane by X${fmt(toUnits(xConv,units),3)} -- )`);
+        {
+          const rad = bhWs[ci] / 2;
+          const levels = Math.max(1, Math.ceil(rad / stepdown));
+          for (let lv = 1; lv <= levels; lv++) {
+            const d = Math.min(rad, lv * (rad / levels));
+            const w = Math.sqrt(Math.max(0, rad * rad - d * d));
+            const reach = Math.max(0, w - toolR);
+            const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+            for (let p = 0; p < passes; p++) {
+              const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+              lines.push(`G0 X${fmt(toUnits(xInlet,units),3)} Y${fmt(toUnits(yInUp + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              lines.push(`G1 Z${fmt(toUnits(-d,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+              lines.push(`G1 X0.000 Y${fmt(toUnits(yInUp + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+              lines.push(`G1 X${fmt(toUnits(xConv,units),3)} Y${fmt(toUnits(yC(xConv) + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            }
+          }
+        }
+        // top-half bore from the MOUTH FACE (single chamber, matching the 3D
+        // model's full-length hollow) or the convergence landing (drone
+        // lanes); the window punches through it
+        lines.push(`( -- top-half bore: ceiling at the seam (Z0), floor Z${fmt(toUnits(-r,units),3)} (this chamber's roof) -- )`);
+        sweepHalfRound(chambers.length === 1 ? 0 : xConv, totalLen, r, 0, yC);
+        // rectangular THROUGH-WINDOW: the FULL NEST OPENING, SAC exit →
+        // splitting edge, cut clear through the shell. The nest ridge rises
+        // through it from below: the plateau (flue floor) sits exposed in the
+        // window, and the BIRD straps over the opening to roof the flue —
+        // classic NAF anatomy, with the nest carried by the lower half.
+        pocket(n.xExit0, n.xTsh1, n.shW, 0, -(Tup + n.overshoot), yC,
+          `NEST WINDOW — the full rectangular opening, SAC exit → splitting edge, clear THROUGH the shell (the bird seats over it and roofs the flue)`);
+        // splitting edge: bevel the window's downstream wall. The TIP sits at
+        // the designed TIP HEIGHT above the flue floor — squarely in the jet
+        // — with the designed TIP FLAT held level before the bevel climbs to
+        // the seam at the fipple angle. (Shell frame: a feature h above the
+        // assembled seam is cut at blank z = −h.)
+        {
+          const zTip = -(r - n.flueD + n.tipHeight);            // = flue floor + tipHeight, assembled
+          const bevRise = -zTip;
+          const bevRun = Math.max(0.02, bevRise / Math.tan(Math.max(6, n.fippleDeg) * Math.PI / 180));
+          const x0 = n.xTsh1, xFlatEnd = x0 + n.tipFlat, x1 = xFlatEnd + bevRun;
+          lines.push(`( -- SPLITTING EDGE — tip at ${fmt(toUnits(n.tipHeight,units),4)}${units} above the flue floor (Z${fmt(toUnits(zTip,units),3)}), ${fmt(toUnits(n.tipFlat,units),3)}${units} tip flat, then the ${fmt(n.fippleDeg,1)}° bevel to the seam -- )`);
+          const floorAt = (x) => x <= xFlatEnd ? zTip : Math.min(0, zTip + (x - xFlatEnd) * (bevRise / Math.max(1e-6, bevRun)));
+          const reach = Math.max(0, n.shW / 2 - toolR);
+          const passes = Math.max(1, Math.ceil((2 * reach) / step) + 1);
+          const levels = Math.max(1, Math.ceil(bevRise / stepdown));
+          for (let lv = 1; lv <= levels; lv++) {
+            const zLev = -Math.min(bevRise, lv * stepdown);
+            for (let p = 0; p < passes; p++) {
+              const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
+              lines.push(`G0 X${fmt(toUnits(x1,units),3)} Y${fmt(toUnits(yC(x1) + yo,units),3)} Z${fmt(toUnits(retract,units),3)}`);
+              lines.push(`G1 Z${fmt(toUnits(Math.max(zLev, floorAt(x1)),units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+              const st2 = Math.max(2, Math.ceil((x1 - x0) / 0.01));
+              for (let s = 0; s <= st2; s++) { const x = x1 - (x1 - x0) * (s / st2);
+                const z = Math.max(zLev, floorAt(x));
+                lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(yC(x) + yo,units),3)} Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(feedRate,units),1)}`); }
+              lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+            }
+          }
+        }
+        // finger holes — through the shell (playable chambers only)
+        if (c.playable && c.holes && c.holes.length) {
+          lines.push(`( -- FINGER HOLES — through the shell (${fmt(toUnits(Tup + n.overshoot,units),3)}${units}) -- )`);
+          [...c.holes].sort((a, b) => parseFloat(a.fromTSH) - parseFloat(b.fromTSH)).forEach(h => {
+            const hx = c.sacLen + parseFloat(h.fromTSH);
+            drillRoundHole(lines, { label: `HOLE H${h.num} (${h.interval || ""})`, x: hx, y: yC(hx),
+              holeDia: parseFloat(h.diameter), depth: Tup + n.overshoot,
+              toolDiameter, units, feedRate, plungeRate, safeHeight, retractHeight: retract, zTop: 0 });
+          });
+        }
+      });
+    } // end wantUpper (Operation B)
+
+    // ── MOUTHPIECE plan-outline rough ──
+    const millMouth = (yCof, zThick) => {
+      const raw = [];
+      const NT = 32, NCp = 10;
+      for (let i = 0; i <= NT; i++) { const x = -(i / NT) * mpDomeLen; raw.push({ x, w: mpWidthAt(x) }); }
+      for (let i = 1; i <= NCp; i++) { const x = -mpDomeLen - (i / NCp) * mpCapLen; raw.push({ x, w: mpWidthAt(x) }); }
+      const cut = (sgn) => {
+        const levels = Math.max(1, Math.ceil((zThick + 0.04) / stepdown));
+        for (let lv = 1; lv <= levels; lv++) {
+          const z = -Math.min(zThick + 0.04, lv * stepdown);
+          const p0 = raw[0];
+          lines.push(`G0 X${fmt(toUnits(p0.x,units),3)} Y${fmt(toUnits(yCof(p0.x) + sgn * (p0.w + toolR),units),3)} Z${fmt(toUnits(retract,units),3)}`);
+          lines.push(`G1 Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          raw.forEach(p => lines.push(`G1 X${fmt(toUnits(p.x,units),3)} Y${fmt(toUnits(yCof(p.x) + sgn * (p.w + toolR),units),3)} F${fmt(toUnits(feedRate,units),1)}`));
+          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+        }
+      };
+      cut(+1); cut(-1);
+    };
+    lines.push("");
+    lines.push(`( -- MOUTHPIECE ROUGH — plan outline around the lane midline; round the height by hand after glue-up -- )`);
+    if (wantLower) millMouth((x) => yMidLanes + bow(x), Tlow);
+    if (wantUpper) millMouth((x) => yTableShift + 2 * yMirror - yMidLanes - bow(x), Tup);
+
+    // ── ALIGNMENT PINS — two rails outside the outermost bores. LOWER pins
+    //    drill from the FACED seam plane (the shell seats there); UPPER pins
+    //    from the shell's seam face. Same X/Y grid on both so they mate.
+    if (alignPins) {
+      const pin = SPLIT_FIT.pinSizes.find(P => toolDiameter <= P && stockMarginY >= P + 2 * SPLIT_FIT.slipClearance + SPLIT_FIT.landClearance) || SPLIT_FIT.pinSizes[SPLIT_FIT.pinSizes.length - 1];
+      const railLo = yMinB + stockMarginY * 0.5;
+      const railHi = yMaxB - stockMarginY * 0.5;
+      const xa = SPLIT_FIT.endInset, xb = maxLenNI - SPLIT_FIT.endInset;
+      const stations = [];
+      if (xb <= xa) stations.push(maxLenNI / 2);
+      else { const span = xb - xa, nP = Math.max(2, Math.ceil(span / SPLIT_FIT.maxSpacing) + 1);
+        for (let i = 0; i < nP; i++) stations.push(xa + span * (i / (nP - 1))); }
+      const depLow = Math.min(SPLIT_FIT.maxPinDepth, Math.max(SPLIT_FIT.minPinDepth, pin * 1.25), (Tlow - rMax) - SPLIT_FIT.landClearance);
+      const depUp = Math.min(SPLIT_FIT.maxPinDepth, Math.max(SPLIT_FIT.minPinDepth, pin * 1.25), Tup - SPLIT_FIT.landClearance);
+      if (depUp >= 0.12 && depLow >= 0.12) {
+        lines.push("");
+        lines.push(`( -- ALIGNMENT PINS — Ø${pin}" dowels; lower on-size from the faced seam (glued), upper +${fmt(toUnits(SPLIT_FIT.slipClearance,units),4)}${units}/side slip -- )`);
+        stations.forEach((px, si) => { [railLo, railHi].forEach((ry, ei) => {
+          if (wantLower) drillRoundHole(lines, { label: `pin ${si + 1}${ei === 0 ? "L" : "R"} (lower, from the seam plane)`, x: px, y: ry,
+            holeDia: pin, depth: depLow, toolDiameter, units, feedRate, plungeRate, safeHeight, retractHeight: retract, zTop: zSeam });
+          if (wantUpper) drillRoundHole(lines, { label: `pin ${si + 1}${ei === 0 ? "L" : "R"} (upper)`, x: px, y: yTableShift + (railLo + railHi) - ry,
+            holeDia: pin + 2 * SPLIT_FIT.slipClearance, depth: depUp, toolDiameter, units, feedRate, plungeRate, safeHeight, retractHeight: retract, zTop: 0 });
+        }); });
+      }
+    }
+
+    // ── OPTIONAL: BODY OUTLINE — the very last passes of the job ──────
+    // "cutout": the finished body's plan silhouette profile-cut clear
+    // through BOTH blanks (lower at native Y, shell mirrored about the
+    // blank midline), tool-radius compensated OUTWARD with mitered joins,
+    // with tabs holding each half to the pin-bearing waste rails.
+    // "scribe" doesn't apply here: neither machined face survives as an
+    // outer face in this no-flip architecture (both tops are glue faces).
+    if (outlinePass === "scribe") {
+      lines.push("");
+      lines.push(`( -- BODY-OUTLINE SCRIBE requested, NOT APPLICABLE to the nest-insert split: both machined -- )`);
+      lines.push(`( faces are GLUE faces (lower: the faced seam plane; shell: the seam side), so a scribed -- )`);
+      lines.push(`( groove would be hidden inside the glue-up. Use the FULL CUTOUT option instead. -- )`);
+    }
+    if (outlinePass === "cutout") {
+      const chamberFoot = (ci) => chambers[ci].sacLen + chambers[ci].L;
+      // Flank position (Y-edge of the finished silhouette) at a given X and
+      // side (+1/-1). For x<0 that's the mouthpiece dome/cap — mpWidthAt is
+      // the SAME shape function the mouthpiece-rough pass above actually
+      // machines, tapering to a true point at x = -(mpDomeLen+mpCapLen) — so
+      // reusing it here traces the real silhouette instead of an
+      // approximation. Without this the outline stopped dead at x=0 and the
+      // mouthpiece was never actually freed from the waste stock by this cut.
+      const flankAt = (x, side) => {
+        if (x < -1e-9) {
+          const halfW = mpWidthAt(x);
+          return halfW > 1e-6 ? yMidLanes + side * halfW : null;
+        }
+        let best = null;
+        for (let ci = 0; ci < chambers.length; ci++) {
+          const tl = chamberFoot(ci);
+          if (x > tl + 1e-9) continue;
+          const b = bowAmp === 0 ? 0 : bowAmp * Math.sin((Math.min(x, tl) / tl) * Math.PI);
+          const y = lane[ci] + b + side * (nest[ci].r + nest[ci].wallT);
+          if (best === null || (side > 0 ? y > best : y < best)) best = y;
+        }
+        return best;
+      };
+      const feet = [...new Set(chambers.map((_, ci) => +chamberFoot(ci).toFixed(6)))].sort((a, b) => a - b);
+      const mpTipX = -(mpDomeLen + mpCapLen);   // where the dome/cap tapers to zero width
+      const buildXs = () => {
+        const xs = [];
+        // Mouthpiece region (its tip up to x=0) first, fine enough to trace
+        // the dome/cap's curve smoothly, then the main body.
+        const NM = Math.max(16, Math.ceil((mpDomeLen + mpCapLen) / 0.12));
+        for (let i = 0; i <= NM; i++) xs.push(mpTipX * (1 - i / NM));
+        const N = Math.max(24, Math.ceil(maxLenNI / 0.25));
+        for (let i = 0; i <= N; i++) xs.push(maxLenNI * (i / N));
+        feet.forEach(f => { if (f > 1e-4 && f < maxLenNI - 1e-4) xs.push(f - 1e-4, f + 1e-4); });
+        return xs.sort((a, b) => a - b);
+      };
+      let pts = [];
+      buildXs().forEach(x => { const y = flankAt(x, +1); if (y != null) pts.push({ x, y }); });
+      buildXs().reverse().forEach(x => { const y = flankAt(x, -1); if (y != null) pts.push({ x, y }); });
+      // cutter compensation: SEGMENT offset with mitered joins (the averaged-
+      // normal version gouged a triangle into the wall at every drone-foot
+      // step — see the symmetric emitter for the full story).
+      {
+        const nPts = pts.length;
+        if (nPts >= 2) {
+          const MITER_LIMIT = 6;
+          const seg = [];
+          for (let i = 0; i < nPts - 1; i++) {
+            let dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+            const L = Math.hypot(dx, dy) || 1;
+            dx /= L; dy /= L;
+            const nx = -dy, ny = dx;
+            seg.push({ dx, dy, nx, ny, px: pts[i].x + nx * toolR, py: pts[i].y + ny * toolR });
+          }
+          const off = [{ x: seg[0].px, y: seg[0].py }];
+          for (let i = 1; i < nPts - 1; i++) {
+            const a = seg[i - 1], b = seg[i];
+            const den = a.dx * b.dy - a.dy * b.dx;
+            let jx, jy;
+            if (Math.abs(den) < 1e-9) { jx = pts[i].x + b.nx * toolR; jy = pts[i].y + b.ny * toolR; }
+            else {
+              const t = ((b.px - a.px) * b.dy - (b.py - a.py) * b.dx) / den;
+              jx = a.px + t * a.dx; jy = a.py + t * a.dy;
+              const mx = jx - pts[i].x, my = jy - pts[i].y, ml = Math.hypot(mx, my);
+              if (ml > MITER_LIMIT * toolR) { const k = (MITER_LIMIT * toolR) / (ml || 1); jx = pts[i].x + mx * k; jy = pts[i].y + my * k; }
+            }
+            off.push({ x: jx, y: jy });
+          }
+          const lastSeg = seg[nPts - 2];
+          off.push({ x: pts[nPts - 1].x + lastSeg.nx * toolR, y: pts[nPts - 1].y + lastSeg.ny * toolR });
+          pts = off;
+        }
+      }
+      const TABS = 6;
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+      const loopLen = cum[cum.length - 1];
+      const tabCenters = Array.from({ length: TABS }, (_, k) => ((k + 0.5) / TABS) * loopLen);
+      const tabLen = 0.32 + toolDiameter;
+      const inTab = (d2) => tabCenters.some(cc => Math.abs(d2 - cc) < tabLen / 2);
+      const swath = Math.max(...nest.map(nn => nn.wallT)) + toolDiameter;
+      const pinInset = stockMarginY * 0.5;
+      lines.push("");
+      lines.push(`( -- BODY-OUTLINE FULL CUTOUT (LAST passes) — BOTH blanks, profile cut THROUGH -- )`);
+      lines.push(`( Silhouette tool-radius compensated OUTWARD with mitered corners; ${TABS} tabs per blank hold )`);
+      lines.push(`( each body half to the waste rails carrying the ALIGNMENT PINS, so registration survives )`);
+      lines.push(`( glue-up. Break or saw the tabs off afterwards. )`);
+      if (!(pinInset > swath + 0.1)) {
+        lines.push(`( ⚠⚠ PIN CLEARANCE: the cut swath (wall + cutter = ${fmt(toUnits(swath,units),3)}${units}) reaches near the pin rails — )`);
+        lines.push(`( increase stock margin Y or use a smaller cutter, or the cutout may graze the pin holes. )`);
+      }
+      const cutJobs = [
+        ...(wantLower ? [{ name: "LOWER NEST blank (native Y)", mapYo: (yv) => yv, thick: Tlow }] : []),
+        ...(wantUpper ? [{ name: "UPPER SHELL blank (mirrored at +Y)", mapYo: (yv) => yTableShift + 2 * yMirror - yv, thick: Tup }] : []),
+      ];
+      cutJobs.forEach(job => {
+        const cutDepth = job.thick + 0.04;
+        const levels = Math.max(1, Math.ceil(cutDepth / stepdown));
+        const tabH = Math.min(0.12, Math.max(0.06, job.thick * 0.18));
+        const tabTopZ = -(job.thick - tabH);
+        lines.push(`( -- outline cutout: ${job.name} — through ${fmt(toUnits(cutDepth,units),3)}${units} in ${levels} passes -- )`);
+        for (let lv = 1; lv <= levels; lv++) {
+          const z = -Math.min(cutDepth, lv * stepdown);
+          const tabsActive = z < tabTopZ;
+          lines.push(`( pass ${lv}/${levels} — Z${fmt(toUnits(z,units),3)}${tabsActive ? " — riding over the " + TABS + " tabs" : ""} )`);
+          const p0 = pts[0];
+          lines.push(`G0 X${fmt(toUnits(p0.x,units),3)} Y${fmt(toUnits(job.mapYo(p0.y),units),3)} Z${fmt(toUnits(retract,units),3)}`);
+          lines.push(`G1 Z${fmt(toUnits(tabsActive && inTab(0) ? tabTopZ : z,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          pts.forEach((p, pi) => {
+            const zi = tabsActive && inTab(cum[pi]) ? tabTopZ : z;
+            lines.push(`G1 X${fmt(toUnits(p.x,units),3)} Y${fmt(toUnits(job.mapYo(p.y),units),3)} Z${fmt(toUnits(zi,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
+          });
+          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
+        }
+      });
+    }
+
+    lines.push("");
+    lines.push(`( ══════════ DONE — both blanks cut single-sided, no flip ══════════ )`);
+    lines.push(`( Turn the upper shell over onto the faced seam plane, register on the pins, and glue. )`);
+    lines.push(`( Strap each BIRD over its window: it seats on the exposed nest plateau and roofs the flue. )`);
+    lines.push(`( Each jet then splits on its window's downstream edge. Round the outside after glue-up. )`);
+    lines.push(...gcodeFooter(dialect));
+    return lines.join("\n");
+  }
+
+
+
   // ── SYMMETRIC SPLIT AT THE BORE AXIS ──────────────────────────────
   // The seam plane runs through the bore axis — the tube's widest line —
   // so each half is exactly (bore radius + wall) thick and the two blanks
@@ -4473,20 +6301,64 @@ function generateSplitBlockGCode(params) {
   const yTableShift = blankWidth + tableGap;
   const zTopShift = 0; // equal thickness ⇒ both blanks zero on the same top face
 
-  const yMid = oneBlank ? (yOffs[0] + yOffs[yOffs.length - 1]) / 2 : 0;
-  const yBlankMinBottom = yOffs[0] - chambers[0].bore / 2 - stockMarginY;
+  const yMid = oneBlank ? (Math.min(...yOffs) + Math.max(...yOffs)) / 2 : 0;
+  const yBlankMinBottom = Math.min(...yOffs.map((v, i) => v - chambers[i].bore / 2)) - stockMarginY;
   const yBlankMinTop = (2 * yMid - (yBlankMinBottom + blankWidth)) + yTableShift;
+
+  // ── BASIC DRILLED LAYOUT — hand-finish undersizing ─────────────────
+  // This mode is for makers who want to carve and voice the acoustic
+  // mechanism themselves: the CNC cuts only what's reproducible (the SAC
+  // and the full-round bore, at exact design dimensions) plus a set of
+  // LOCATING cuts for the finer features (blow hole, finger holes, flue,
+  // air-exit hole, TSH) — each shrunk by HFU below the true design size so
+  // there's stock left to hand-fit, ream, or file to final dimension. The
+  // ramp and the splitting edge (bevel / tip / relief) are NOT machined at
+  // all — no shaped surface, not even undersized — they're entirely hand
+  // work, using the SAC bore's stopping point and the exit/TSH holes as
+  // position references.
+  const HFU = FLUTE_CONST.HAND_FINISH_UNDERSIZE_IN;    // ~2mm, every non-SAC/bore cut shrinks by this
+  const under = (v, floor = 0.015) => Math.max(floor, v - HFU);
 
   // ── DRONE MOUTHPIECE: converging blow-air channels ────────────────
   const bhWs = chambers.map(c => Number.isFinite(c.breathHoleWidthIn) ? c.breathHoleWidthIn : FLUTE_CONST.breathHoleWidth(c.bore));
   const bhLs = chambers.map(c => Number.isFinite(c.breathHoleLengthIn) ? c.breathHoleLengthIn : FLUTE_CONST.breathHoleLength(c.bore));
   const MOUTH_EDGE_GAP = 0.10;
   const converge = oneBlank && chambers.length > 1;
+  // ── SEPARATE AIR CHANNELS, GUARANTEED ── The blow passages must NEVER
+  // intersect: each chamber breathes through its OWN channel from inlet
+  // to SAC. Big user-set breath holes on closely-spaced small-bore drones
+  // can overlap where the channels arrive at their SACs (adjacent SAC
+  // centres sit a wall-merged spacing apart) — so if any adjacent pair's
+  // holes would meet with less than a 0.06" wood web anywhere, EVERY hole
+  // is scaled down by the same factor until the web holds.
+  let bhScaleNote = null;
+  if (converge) {
+    let f = 1;
+    for (let i = 0; i < chambers.length - 1; i++) {
+      const centerDist = Math.abs(yOffs[i + 1] - yOffs[i]);
+      const need = (bhWs[i] + bhWs[i + 1]) / 2;
+      const avail = centerDist - 0.06;
+      if (avail > 0.02 && need > avail) f = Math.min(f, avail / need);
+    }
+    if (f < 0.999) {
+      for (let i = 0; i < bhWs.length; i++) bhWs[i] = Math.max(0.12, bhWs[i] * f);
+      bhScaleNote = `BREATH HOLES AUTO-REDUCED x${f.toFixed(2)} (to Ø${bhWs.map(w => fmt(toUnits(w, units), 3)).join("/")}${units}) so adjacent blow channels keep a solid wood web — every chamber breathes through its OWN separate channel, nothing intersects.`;
+    }
+  }
   const mouthYs = (() => {
     if (!converge) return chambers.map((c, i) => yOffs[i]);
-    const spread = bhWs.reduce((s, w) => s + w, 0) + MOUTH_EDGE_GAP * (chambers.length - 1);
+    // Inlet slots are assigned by each chamber's SAC Y RANK, not by array
+    // index: inlets and SAC centres then run in the SAME lateral order, so
+    // the converging channels FAN outward and can never cross each other.
+    // (Index-ordered slots crossed after the handedness mirror: chamber 0
+    // ran from the lowest inlet to the highest SAC, slicing through every
+    // other channel on the way.)
+    const rank = chambers.map((_, i) => i).sort((a, b2) => yOffs[a] - yOffs[b2]);
+    const spread = bhWs.reduce((s2, w) => s2 + w, 0) + MOUTH_EDGE_GAP * (chambers.length - 1);
+    const slots = [];
     let yCur = yMid - spread / 2;
-    return chambers.map((c, i) => { const yc = yCur + bhWs[i] / 2; yCur += bhWs[i] + MOUTH_EDGE_GAP; return yc; });
+    rank.forEach(i => { slots[i] = yCur + bhWs[i] / 2; yCur += bhWs[i] + MOUTH_EDGE_GAP; });
+    return slots;
   })();
   const convergeRun = chambers.map((c, i) => {
     const dy = Math.abs(yOffs[i] - mouthYs[i]);
@@ -4502,7 +6374,7 @@ function generateSplitBlockGCode(params) {
   // Every number here is the one the 3D preview lofts, so the rough cut and
   // the preview describe the same mouthpiece.
   const mpR = Math.max(...nest.map(n => n.r + n.wallT));
-  const mpHalfW = oneBlank ? (yOffs[yOffs.length - 1] - yOffs[0]) / 2 + mpR : mpR;
+  const mpHalfW = oneBlank ? (Math.max(...yOffs) - Math.min(...yOffs)) / 2 + mpR : mpR;
   const mpDomeLen = Math.max(0.5, mpR * 1.5);
   const mpCapLen = mpDomeLen * 0.3;
   const mpSpreadHalf = (converge ? Math.max(...mouthYs.map(y => Math.abs(y - yMid))) : 0) + Math.max(...bhWs) * 0.5;
@@ -4531,17 +6403,21 @@ function generateSplitBlockGCode(params) {
     notes: [
       `TABLE LAYOUT: clamp BOTH blanks down. They are the SAME size: ${fmt(toUnits(blankLen, units),2)} × ${fmt(toUnits(blankWidth, units),2)} × ${fmt(toUnits(blankThick, units),2)} ${units} (= bore radius + wall). The seam plane runs through the BORE AXIS — the tube's widest line — so the halves are mirror images and each carries exactly half the bore. BOTTOM blank at the program's native Y; TOP blank alongside at +Y, ${fmt(toUnits(tableGap, units),2)}${units} clear.`,
       `Z ZERO: on the blanks' TOP faces (both are the same thickness, so one Z zero serves both). That face IS the glue seam — plane the stock to ${fmt(toUnits(blankThick, units),3)}${units} and it needs no facing.`,
-      `THE "BLOCK" IS NOT MACHINED — it is the SOLID WALL left standing between the SAC and the sound chamber when both halves stop their bore channels. The SAC floor RAMPS UP to the seam at ${fmt(nest[0].rampDeg,0)}°${nest[0].rampCurve > 0.01 ? `, CURVED into a concave scoop (${fmt(nest[0].rampCurve,2)}) exactly as the 3D preview shows it` : " as a straight face"}, so the breath is squeezed up and out through the SAC exit hole just upstream of it.`,
+      `BASIC DRILLED LAYOUT — HAND-FINISH MODE: this program cuts only what's reproducible by machine at its TRUE design size — the SAC and the full-round bore. Every other feature (blow hole, finger holes, flue, air-exit hole, TSH) is a LOCATING cut, ${fmt(toUnits(HFU,units),3)}${units} SMALLER than the true design dimension in every direction, leaving stock to hand-fit, ream, or file to final size. The RAMP and the SPLITTING EDGE (bevel, tip, relief) are NOT machined at all — no shaped surface, undersized or otherwise — they are carved entirely by hand and tuned by ear, using the SAC bore's stopping point and the air-exit/TSH holes as position references.`,
+      `THE "BLOCK" IS NOT MACHINED — it is the SOLID WALL left standing between the SAC and the sound chamber when both halves stop their bore channels.`,
       ...(chambers.length > 1 ? [oneBlank
-        ? `DRONE FLUTE, ONE SOLID BODY: all ${chambers.length} chambers are milled side-by-side in each blank. EVERY chamber gets its OWN SAC, ramp, exit hole, flue and TSH; the blow channels angle inward to ONE shared mouthpiece, inlets ${fmt(toUnits(MOUTH_EDGE_GAP,units),2)}${units} (~${(MOUTH_EDGE_GAP*25.4).toFixed(1)} mm) apart edge-to-edge.`
+        ? `DRONE FLUTE, ONE SOLID BODY: all ${chambers.length} chambers are milled side-by-side in each blank. EVERY chamber gets its OWN SAC, exit hole, flue and TSH (each undersized as above); the blow channels angle inward to ONE shared mouthpiece, inlets ${fmt(toUnits(MOUTH_EDGE_GAP,units),2)}${units} (~${(MOUTH_EDGE_GAP*25.4).toFixed(1)} mm) apart edge-to-edge.`
         : `DRONE FLUTE, SEPARATE PIPES: the program PAUSES (M0) between chambers — swap in the next chamber's blank pair, re-zero, resume.`] : []),
       `Tool: ${fmt(toUnits(toolDiameter, units),3)} ${units} diameter ${channelStyle === "round" ? "BALL-NOSE (required — the bore is a true half-round, swept with lateral stepover passes)" : "flat end mill (the half-round bore is approximated by stepped Z levels — a ball-nose gives a far better bore)"}.`,
-      ...(wantHalves ? ["OPERATION 1A (bottom blank, seam face up) and 1B (top blank, seam face up, Y-mirrored) cut the SAME shape: the blow-air passage, the half-round bore, the ramp closing the SAC, and the half-round sound chamber — leaving the block wall solid. 1B also bores the finger holes through."] : []),
-      ...(wantNest ? [`OPERATION 1C${only === "all" ? "" : " (THIS PROGRAM)"}: the TOP BLANK IS TURNED OVER about its long axis so its OUTER face is up, and Z is re-zeroed on it. It cuts the SAC exit hole, the flue, and the TSH starting hole. Those live on the face OPPOSITE the bore and cannot be reached from the seam side — the flip is unavoidable. While the blank is up, it also re-cuts the FINGER HOLES from this side: Op 1B broke out through this face, and it is the face the player's fingers seal against, so the second pass cleans those edges.`] : []),
+      ...(wantHalves ? ["OPERATION 1A (bottom blank, seam face up) and 1B (top blank, seam face up, Y-mirrored) cut the SAME shape: the (undersized) blow-air passage, the full-round SAC bore stopping at the air-exit hole's start, and the full-round sound chamber — leaving the block wall solid and the ramp entirely uncut. 1B also bores the (undersized) finger holes through."] : []),
+      ...(wantNest ? [`OPERATION 1C${only === "all" ? "" : " (THIS PROGRAM)"}: the TOP BLANK IS TURNED OVER about its long axis so its OUTER face is up, and Z is re-zeroed on it. It cuts the (undersized) air-exit hole, flue, and TSH starting hole. Those live on the face OPPOSITE the bore and cannot be reached from the seam side — the flip is unavoidable. While the blank is up, it also re-cuts the FINGER HOLES from this side: Op 1B broke out through this face, and it is the face the player's fingers seal against, so the second pass cleans those edges.`] : []),
       ...(only === "halves" ? ["THIS PROGRAM IS SETUP 1 OF 2. When it finishes, turn the top blank over, re-zero Z on its outer face, and run the NEST program."] : []),
       ...(only === "nest" ? ["THIS PROGRAM IS SETUP 2 OF 2. Run the HALVES program first — this one assumes the bores are already cut and the top blank has been turned over."] : []),
-      "THE SPLITTING EDGE IS MACHINED IN TWO BITES, because no single setup can reach it: its BEVEL is an undercut from the outer face (the edge's own material sits over it), so that face is cut from the SEAM side in Op 1B, where it is only a shallow reach past the bore floor. The TIP FLAT and the 15° relief are then cut from the outer face in Op 1C. The TSH itself is roughed to a starting hole. Hone the tip by hand and tune by ear.",
-      ...(wantNest ? ["AFTER GLUE-UP: round the outside to the finished tube; the flue and TSH were cut at the apex so they survive the round-over. Carve the splitting edge, then fit the bird over the flue."] : []),
+      "THE SPLITTING EDGE AND THE RAMP ARE ENTIRELY HAND WORK — no bevel, tip, relief, or ramp surface is machined anywhere in this mode. Carve the ramp from the SAC bore's stopping point up into the air-exit hole and flue floor; carve and hone the splitting edge at the TSH starting hole; tune both by ear. Design reference numbers for each are printed as comments at the matching station in the G-code below.",
+      ...(wantNest ? ["AFTER GLUE-UP: round the outside to the finished tube. Then hand-carve the ramp, the flue to its full depth and length, the air-exit opening to its full size, and the splitting edge — fit the bird over the flue last."] : []),
+      ...(bhScaleNote ? [bhScaleNote] : []),
+      ...(wantNest && outlinePass === "scribe" ? ["BODY-OUTLINE SCRIBE ENABLED: the job's very last pass traces a deep reference groove of the finished body's plan silhouette on the flipped blank's outer face — saw and round the glued body to it. Cut on the waste side; the groove IS the finished outline."] : []),
+      ...(wantNest && outlinePass === "cutout" ? ["BODY-OUTLINE FULL CUTOUT ENABLED: the job ends by profile-cutting the finished body's plan silhouette clear THROUGH BOTH blanks (bottom, then the flipped top), tool-radius compensated so the edge lands exactly on the outline. 6 tabs per half are left standing to keep each body half attached to the waste rails carrying the alignment pins — registration survives glue-up; break or saw the tabs off afterwards."] : []),
       ...(alignPins ? [`ALIGNMENT PINS: matching holes in the land beside the bore; dowel auto-sized from ${SPLIT_FIT.pinSizes.map(p=>p+'"').join(", ")}. Bottom on-size (glued), top +${fmt(toUnits(SPLIT_FIT.slipClearance,units),4)}${units}/side slip fit.`] : []),
     ],
   }));
@@ -4575,8 +6451,8 @@ function generateSplitBlockGCode(params) {
       const n = Math.max(2, Math.ceil(span / SPLIT_FIT.maxSpacing) + 1);
       for (let i = 0; i < n; i++) stations.push(xa + span * (i / (n - 1)));
     }
-    const yLow = (oneBlank ? yOffs[0] : 0) - chambers[0].bore / 2 - stockMarginY * 0.5;
-    const yHigh = (oneBlank ? yOffs[yOffs.length - 1] : 0) + chambers[chambers.length - 1].bore / 2 + stockMarginY * 0.5;
+    const yLow = (oneBlank ? Math.min(...yOffs.map((v, i) => v - chambers[i].bore / 2)) : -chambers[0].bore / 2) - stockMarginY * 0.5;
+    const yHigh = (oneBlank ? Math.max(...yOffs.map((v, i) => v + chambers[i].bore / 2)) : chambers[0].bore / 2) + stockMarginY * 0.5;
     const engage = Math.min(SPLIT_FIT.maxPinDepth, Math.max(SPLIT_FIT.minPinDepth, chosen * 1.25), blankThick - SPLIT_FIT.landClearance);
     if (engage < 0.12) return { ok: false, reason: `blanks only ${fmt(toUnits(blankThick,units),3)}${units} thick — too thin to seat Ø${chosen}" pins` };
     return { ok: true, reason: null, stations, edges: [yLow, yHigh], pinDiameter: chosen, topDepth: engage, bottomDepth: engage };
@@ -4639,7 +6515,9 @@ function generateSplitBlockGCode(params) {
     lines.push("");
     lines.push(`( -- MOUTHPIECE ROUGH — plan outline, ${fmt(toUnits(mpDomeLen + mpCapLen, units), 3)}${units} ahead of the mouth face -- )`);
     lines.push(`( Tapers ${fmt(toUnits(mpHalfW * 2, units), 3)} → ${fmt(toUnits(mpHalfW * mpTipW * 2, units), 3)}${units} wide. Cut THROUGH the blank, so both halves )`);
-    lines.push(`( match at glue-up. The HEIGHT taper is on the round outside — carve that after glue-up. )`);
+    lines.push(`( match at glue-up. The HEIGHT taper is on the round outside — carve that after glue-up, )`);
+    lines.push(`( working around the blow channels: they already run through the outline and their open )`);
+    lines.push(`( ends emerge from the rounded tip — that is what the player blows into. )`);
     lines.push(`( ⚠ The waste either side comes free on the last pass: tape it down or leave tabs. -- )`);
     const levels = Math.max(1, Math.ceil((blankThick + 0.04) / stepdown));
     for (let lv = 1; lv <= levels; lv++) {
@@ -4766,9 +6644,14 @@ function generateSplitBlockGCode(params) {
     };
 
     // ── BLOW-AIR passage: half-round, mouth inlet → chamber centreline ──
+    // Cut at the UNDERSIZED diameter (basic drilled layout) — position and
+    // spacing math (xConv, convergence, collision guards) all use the TRUE
+    // design bhW, so nothing else shifts; only the bit that actually
+    // touches wood is smaller, leaving room to ream to the tuned size.
     {
       const bhW = bhWs[ci];
-      const rad = bhW / 2;
+      const bhWcut = under(bhW, 0.06);
+      const rad = bhWcut / 2;
       // The passage must finish BEFORE the ramp foot. Its natural run (from
       // the breath-hole length, or a drone's convergence sweep) can easily
       // be longer than the clear SAC ahead of the ramp — a long breath hole
@@ -4782,7 +6665,23 @@ function generateSplitBlockGCode(params) {
         lines.push(`( the ramp foot is at X${fmt(toUnits(n.xRampBase,units),3)} and the passage must not run into the ramp. )`);
       }
       const yIn = mapY(mouthYs[ci]), yOut = centerY(xConv);
-      lines.push(`( -- BLOW-AIR passage — Ø${fmt(toUnits(bhW,units),3)}${units} half-round, inlet Y${fmt(toUnits(yIn,units),3)}${converge ? " (shared mouthpiece)" : ""} → SAC Y${fmt(toUnits(yOut,units),3)} -- )`);
+      // The inlet end: the passage does NOT stop at the mouth face (X0) — it
+      // carries straight on forward THROUGH the mouthpiece nipple so its open
+      // end breaks out of the rounded tip, exactly as the 3D preview bores it
+      // (the preview's blow-hole cylinders run domeLen*1.7 past the face).
+      // The rough plan outline tapers narrower than the channels toward the
+      // tip, so the last stretch of every channel emerges through the tip arc
+      // — the finished mouthpiece is blown through these very ends. Runs half
+      // a cutter past the tip to guarantee full-depth break-out; the front
+      // stock margin (mpFront) was sized to hold this.
+      const xInlet = mpDoRough
+        ? Math.max(xBlank0 + 0.02, -(mpDomeLen + mpCapLen) - Math.max(0.1, toolDiameter / 2))
+        : 0;
+      lines.push(`( -- BLOW-AIR passage — Ø${fmt(toUnits(bhWcut,units),3)}${units} half-round (design Ø${fmt(toUnits(bhW,units),3)}${units}, ${fmt(toUnits(HFU,units),3)}${units} undersized for hand-reaming), inlet Y${fmt(toUnits(yIn,units),3)}${converge ? " (shared mouthpiece)" : ""} → SAC Y${fmt(toUnits(yOut,units),3)} -- )`);
+      if (xInlet < -1e-6) {
+        lines.push(`( Runs from X${fmt(toUnits(xInlet,units),3)} — clear THROUGH the mouthpiece nipple — so the channel's )`);
+        lines.push(`( open end sticks out of the rounded tip once the outline rough-cut frees it. )`);
+      }
       const levels = Math.max(1, Math.ceil(rad / stepdown));
       for (let lv = 1; lv <= levels; lv++) {
         const d = Math.min(rad, lv * (rad / levels));
@@ -4791,36 +6690,24 @@ function generateSplitBlockGCode(params) {
         const passes = Math.max(1, Math.ceil((2 * reach) / stepover) + 1);
         for (let p = 0; p < passes; p++) {
           const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
-          lines.push(`G0 X0.000 Y${fmt(toUnits(yIn + yo,units),3)} Z${fmt(toUnits(zRef + retractForPins,units),3)}`);
+          lines.push(`G0 X${fmt(toUnits(xInlet,units),3)} Y${fmt(toUnits(yIn + yo,units),3)} Z${fmt(toUnits(zRef + retractForPins,units),3)}`);
           lines.push(`G1 Z${fmt(toUnits(zRef - d,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
+          // straight leg through the nipple (constant Y — the convergence
+          // sweep only begins at the mouth face, mirroring the preview)
+          if (xInlet < -1e-6) lines.push(`G1 X0.000 Y${fmt(toUnits(yIn + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
           lines.push(`G1 X${fmt(toUnits(xConv,units),3)} Y${fmt(toUnits(yOut + yo,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
           lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
         }
       }
-      // SAC: full half-round bore from the blow passage to the ramp foot,
-      // then the ramp climbing to the seam (rampToSeal clips each level).
-      millHalfRound({ x0: xConv, x1: n.xExit1, rad: r, rampToSeal: true,
-        label: `SAC — half-round bore to the ramp foot at X${fmt(toUnits(n.xRampBase,units),3)}, then the ${fmt(n.rampDeg,0)}°${n.rampCurve > 0.01 ? ` CURVED (scoop ${fmt(n.rampCurve,2)})` : ""} ramp climbing to the seam at X${fmt(toUnits(n.xExit1,units),3)} (the SAC seals here)` });
-      // Ramp finish: a clean ascending pass at the design angle.
-      lines.push(n.rampCurve > 0.01
-        ? `( -- ramp finish pass — CURVED (scoop ${fmt(n.rampCurve,2)}), ${fmt(n.rampDeg,1)}° chord up to the seam -- )`
-        : `( -- ramp finish pass, ${fmt(n.rampDeg,1)}° straight face up to the seam -- )`);
-      // A curved ramp needs a finer walk: chords across a bezier at coarse
-      // steps would flatten the scoop right back out.
-      const rSteps = Math.max(2, Math.ceil((n.xExit1 - n.xRampBase) / (n.rampCurve > 0.01 ? 0.012 : 0.05)));
-      const reachR = Math.max(0, r - toolDiameter / 2);
-      const rPasses = Math.max(1, Math.ceil((2 * reachR) / stepover) + 1);
-      for (let p = 0; p < rPasses; p++) {
-        const yo = rPasses === 1 ? 0 : -reachR + (2 * reachR) * (p / (rPasses - 1));
-        lines.push(`G0 X${fmt(toUnits(n.xRampBase,units),3)} Y${fmt(toUnits(centerY(n.xRampBase) + yo,units),3)} Z${fmt(toUnits(retractForPins,units),3)}`);
-        for (let s = 0; s <= rSteps; s++) {
-          const x = n.xRampBase + (n.xExit1 - n.xRampBase) * (s / rSteps);
-          // floor = the ramp, but never deeper than the bore wall at this offset
-          const zRel = Math.max(rampRelAt(x), -Math.sqrt(Math.max(0, r * r - yo * yo)));
-          lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(centerY(x) + yo,units),3)} Z${fmt(toUnits(zRel,units),3)} F${fmt(toUnits(s === 0 ? plungeRate : feedRate,units),1)}`);
-        }
-        lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
-      }
+      // SAC: full-round bore, FULL DEPTH throughout (no ramp clipping — there
+      // is no machined ramp in this mode), stopping cleanly where the
+      // (undersized) air-exit hole begins. The climb from there up into the
+      // exit hole and flue floor is entirely hand-carved — that transition
+      // is exactly the kind of acoustic shaping this mode leaves to the maker.
+      millHalfRound({ x0: chambers.length === 1 ? 0 : xConv, x1: n.xExit0, rad: r,
+        label: `SAC — half-round bore, full depth, up to the air-exit hole at X${fmt(toUnits(n.xExit0,units),3)}` });
+      lines.push(`( -- RAMP: left UNCUT — hand-carve the climb from the SAC bore floor up into the air-exit hole and flue floor. -- )`);
+      lines.push(`( Design reference (not machined): ${fmt(n.rampDeg,0)}°${n.rampCurve > 0.01 ? ` CURVED (scoop ${fmt(n.rampCurve,2)})` : ""} from X${fmt(toUnits(n.xRampBase,units),3)} to X${fmt(toUnits(n.xExit1,units),3)}. -- )`);
     }
 
     lines.push(`( BLOCK WALL: X${fmt(toUnits(n.xExit1,units),3)} → ${fmt(toUnits(n.xBlockEnd,units),3)}${units} left SOLID — this is the block. Do NOT cut. )`);
@@ -4829,57 +6716,27 @@ function generateSplitBlockGCode(params) {
     millHalfRound({ x0: n.xBlockEnd, x1: totalLen, rad: r,
       label: `sound chamber — half-round bore, block face (backset ${fmt(toUnits(n.backset,units),3)}${units}) → foot` });
 
-    // ── CUTTING-EDGE BEVEL — machined from the SEAM side (top half) ──
-    // The splitting edge's bevel is the face the jet splits on. From the
-    // OUTER face it is a true undercut: the edge's own material sits
-    // directly over it, so a 3-axis cutter would have to pass through the
-    // edge to reach it. From the seam side it is merely a shallow reach
-    // PAST the bore floor into the wall, with the bore already open above
-    // it — so it is cut here, and the outer op does the tip flat + relief.
+    // ── SPLITTING EDGE — NOT MACHINED in this mode ─────────────────
+    // No bevel, tip flat, or relief is cut anywhere (seam side or outer
+    // side): the edge is the single most acoustically sensitive surface
+    // on the instrument, and this mode leaves it entirely to hand carving
+    // and tuning by ear, using the TSH starting hole (Op 1C) as the
+    // position reference.
     if (half === 2) {
-      const tipYm = -n.flueD + n.tipHeight;                    // model Y of the tip
-      const bevRun = Math.max(0.01, (n.tshCutDepth + tipYm) / Math.tan(Math.max(4, n.fippleDeg) * Math.PI / 180));
-      const modelYAt = (x) => tipYm + ((x - n.xTsh1) / bevRun) * (-n.tshCutDepth - tipYm);
-      const seamZAt = (x) => -(modelYAt(x) + n.wallT + r);     // machine Z below the seam
-      // The bevel only needs cutting where it reaches past the bore floor;
-      // downstream of that it is already inside the bore.
-      const tCross = (-n.wallT - tipYm) / (-n.tshCutDepth - tipYm);
-      const xBevEnd = n.xTsh1 + bevRun * Math.max(0, Math.min(1, tCross));
-      const zDeep = seamZAt(n.xTsh1);                          // deepest point, at the tip
-      if (zDeep < -r - 1e-4 && xBevEnd > n.xTsh1 + 1e-4) {
-        lines.push(`( -- CUTTING-EDGE BEVEL — ${fmt(n.fippleDeg,1)}° face, X${fmt(toUnits(n.xTsh1,units),3)}→${fmt(toUnits(xBevEnd,units),3)}, )`);
-        lines.push(`( reaching Z${fmt(toUnits(zDeep,units),3)} (${fmt(toUnits(-zDeep - r,units),4)}${units} past the bore floor into the wall). )`);
-        lines.push(`( This face is an UNDERCUT from the outer side — it can only be cut from here. -- )`);
-        const reach = Math.max(0, n.shW / 2 - toolDiameter / 2);
-        const passes = Math.max(1, Math.ceil((2 * reach) / stepover) + 1);
-        const levels = Math.max(1, Math.ceil((-zDeep - r) / stepdown));
-        for (let lv = 1; lv <= levels; lv++) {
-          const zLev = -r - Math.min(-zDeep - r, lv * stepdown);
-          for (let p = 0; p < passes; p++) {
-            const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
-            lines.push(`G0 X${fmt(toUnits(xBevEnd,units),3)} Y${fmt(toUnits(centerY(xBevEnd) + yo,units),3)} Z${fmt(toUnits(retractForPins,units),3)}`);
-            lines.push(`G1 Z${fmt(toUnits(-r,units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
-            const st2 = Math.max(2, Math.ceil((xBevEnd - n.xTsh1) / 0.01));
-            for (let s = 0; s <= st2; s++) {
-              const x = xBevEnd - (xBevEnd - n.xTsh1) * (s / st2);
-              const z = Math.max(zLev, seamZAt(x));            // rough down in levels, finish on the true face
-              lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(centerY(x) + yo,units),3)} Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
-            }
-            lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
-          }
-        }
-      }
+      lines.push(`( -- SPLITTING EDGE: left UNCUT — hand-carve the bevel, tip, and relief; tune by ear. )`);
+      lines.push(`( Design reference (not machined): ${fmt(n.fippleDeg,1)}° bevel, tip ${fmt(toUnits(n.tipHeight,units),4)}${units} above the flue floor, ${fmt(toUnits(n.tipFlat,units),4)}${units} tip flat, at X${fmt(toUnits(n.xTsh1,units),3)}. -- )`);
     }
 
     // ── FINGER HOLES (top half only) ───────────────────────────────
+    // Drilled UNDERSIZED — hand-ream/file each to its final tuned diameter.
     if (half === 2) {
       if (c.playable && c.holes && c.holes.length) {
-        lines.push(`( -- FINGER HOLES — bored from the seam face through the wall (spoilboard under the blank) -- )`);
+        lines.push(`( -- FINGER HOLES — bored from the seam face through the wall (spoilboard under the blank), each ${fmt(toUnits(HFU,units),3)}${units} undersized for hand tuning -- )`);
         [...c.holes].sort((a, b) => parseFloat(a.fromTSH) - parseFloat(b.fromTSH)).forEach(h => {
           const hx = c.sacLen + parseFloat(h.fromTSH);
           drillRoundHole(lines, {
-            label: `HOLE H${h.num} (${h.interval || ""})`, x: hx, y: centerY(hx),
-            holeDia: parseFloat(h.diameter), depth: r + n.wallT + 0.05,
+            label: `HOLE H${h.num} (${h.interval || ""}) — design Ø${fmt(toUnits(parseFloat(h.diameter),units),3)}${units}`, x: hx, y: centerY(hx),
+            holeDia: under(parseFloat(h.diameter), 0.05), depth: r + n.wallT + 0.05,
             toolDiameter, units, feedRate, plungeRate, safeHeight, retractHeight: retractForPins, zTop: 0,
           });
         });
@@ -4927,50 +6784,36 @@ function generateSplitBlockGCode(params) {
       }
     };
 
-    // 1. SAC EXIT HOLE — through the wall into the tapering SAC.
-    pocket(n.xExit0, n.xExit1, n.shW, n.tshCutDepth, `SAC EXIT HOLE — full depth through the wall (${fmt(toUnits(n.overshoot,units),3)}${units} overshoot into the bore)`);
-    // 2. FLUE — shallow channel over the block; the bird roofs it.
-    pocket(n.xFlue0, n.xTsh0, n.shW, n.flueD, `FLUE — ${fmt(toUnits(n.flueL,units),3)}${units} long over the block, bird roofs this`);
-    // 3. TSH STARTING HOLE — the window, roughed through into the sound
-    //    chamber right up to the splitting edge's tip.
-    pocket(n.xTsh0, n.xTsh1, n.shW, n.tshCutDepth,
-      "TSH STARTING HOLE — roughed through into the sound chamber, up to the splitting edge");
+    // Every pocket below is UNDERSIZED for hand-finishing: width and depth
+    // shrink by HFU, and the span (length) shrinks by HFU too, trimmed
+    // evenly off both ends so the true edges stay centered on the design
+    // opening — the maker extends outward and deepens down to the true
+    // dimensions shown in each label.
+    const shrinkSpan = (x0, x1) => {
+      const trim = Math.min(HFU / 2, Math.max(0, (x1 - x0) / 2 - 0.02));
+      return [x0 + trim, x1 - trim];
+    };
 
-    // 4. CUTTING EDGE, outer side — the TIP FLAT and the 15° relief that
-    //    falls away downstream of the tip. Together with the bevel cut from
-    //    the seam side in Op 1B, this forms the complete splitting edge:
-    //      bevel (Op 1B, from beneath) ╱ tip ╲ relief (here, from above)
-    //    The tip lands tipHeight above the flue floor, per Prairie.
+    // 1. AIR EXIT HOLE — through the wall into the tapering SAC. Undersized.
     {
-      const tipZ = -(n.flueD - n.tipHeight);                  // below the outer face
-      const topRun = (-tipZ) / Math.tan(15 * Math.PI / 180);  // ~15° outer relief
-      lines.push(`( -- CUTTING EDGE (outer side) — tip at Z${fmt(toUnits(tipZ,units),3)} )`);
-      lines.push(`( (${fmt(toUnits(n.tipHeight,units),4)}${units} above the flue floor), ${fmt(toUnits(n.tipFlat,units),4)}${units} tip flat, )`);
-      lines.push(`( then a 15° relief falling away over ${fmt(toUnits(topRun,units),3)}${units}. The ${fmt(n.fippleDeg,1)}° bevel )`);
-      lines.push(`( on the other side of this tip was cut from the seam face in OP 1B. -- )`);
-      const xFlat0 = n.xTsh1, xFlat1 = n.xTsh1 + n.tipFlat, xRel1 = xFlat1 + topRun;
-      // Final floor downstream of the tip: flat at tipZ, then rising to the
-      // outer surface at the design relief angle.
-      const floorAt = (x) => (x <= xFlat1 ? tipZ : Math.min(0, tipZ + (-tipZ) * ((x - xFlat1) / Math.max(1e-6, topRun))));
-      const reach = Math.max(0, n.shW / 2 - toolDiameter / 2);
-      const passes = Math.max(1, Math.ceil((2 * reach) / stepover) + 1);
-      const levels = Math.max(1, Math.ceil((-tipZ) / stepdown));
-      for (let lv = 1; lv <= levels; lv++) {
-        const zLev = -Math.min(-tipZ, lv * stepdown);
-        for (let p = 0; p < passes; p++) {
-          const yo = passes === 1 ? 0 : -reach + (2 * reach) * (p / (passes - 1));
-          lines.push(`G0 X${fmt(toUnits(xFlat0,units),3)} Y${fmt(toUnits(centerY(xFlat0) + yo,units),3)} Z${fmt(toUnits(retractForPins,units),3)}`);
-          lines.push(`G1 Z${fmt(toUnits(Math.max(zLev, floorAt(xFlat0)),units),3)} F${fmt(toUnits(plungeRate,units),1)}`);
-          const st2 = Math.max(2, Math.ceil((xRel1 - xFlat0) / 0.01));
-          for (let s = 0; s <= st2; s++) {
-            const x = xFlat0 + (xRel1 - xFlat0) * (s / st2);
-            const z = Math.max(zLev, floorAt(x));
-            lines.push(`G1 X${fmt(toUnits(x,units),3)} Y${fmt(toUnits(centerY(x) + yo,units),3)} Z${fmt(toUnits(z,units),3)} F${fmt(toUnits(feedRate,units),1)}`);
-          }
-          lines.push(`G0 Z${fmt(toUnits(safeHeight,units),3)}`);
-        }
-      }
-      lines.push(`( -- The edge is now fully machined. Hone the tip lightly by hand and tune by ear. -- )`);
+      const [x0, x1] = shrinkSpan(n.xExit0, n.xExit1);
+      pocket(x0, x1, under(n.shW), under(n.tshCutDepth),
+        `AIR EXIT HOLE — design ${fmt(toUnits(n.shW,units),3)}×${fmt(toUnits(n.tshCutDepth,units),3)}${units}, cut ${fmt(toUnits(HFU,units),3)}${units} undersized in every dimension for hand-fitting`);
+    }
+    // 2. FLUE — shallow channel over the block; the bird roofs it. Undersized
+    //    in depth AND length, per the maker's own hand-carving preference.
+    {
+      const [x0, x1] = shrinkSpan(n.xFlue0, n.xTsh0);
+      pocket(x0, x1, under(n.shW), under(n.flueD),
+        `FLUE — design ${fmt(toUnits(n.flueL,units),3)}${units} long × ${fmt(toUnits(n.flueD,units),3)}${units} deep, cut ${fmt(toUnits(HFU,units),3)}${units} undersized in every dimension; hand-carve to final shape, the bird roofs it`);
+    }
+    // 3. TSH STARTING HOLE — the window, roughed into the sound chamber.
+    //    Undersized; the maker carves it out to the true opening and shapes
+    //    the splitting edge (bevel, tip, relief — none of it machined here).
+    {
+      const [x0, x1] = shrinkSpan(n.xTsh0, n.xTsh1);
+      pocket(x0, x1, under(n.shW), under(n.tshCutDepth),
+        `TSH STARTING HOLE — design ${fmt(toUnits(n.shW,units),3)}${units} wide, cut ${fmt(toUnits(HFU,units),3)}${units} undersized; hand-carve out to the true window and shape the splitting edge (bevel, tip, relief — none of it machined here)`);
     }
 
     // 5. FINGER HOLES — SECOND PASS, from the outer face ──────────────
@@ -4984,14 +6827,14 @@ function generateSplitBlockGCode(params) {
     if (c.playable && c.holes && c.holes.length) {
       const depth = n.wallT + n.overshoot;
       lines.push("");
-      lines.push(`( -- FINGER HOLES — SECOND PASS from the OUTER face, ${fmt(toUnits(depth,units),3)}${units} deep -- )`);
+      lines.push(`( -- FINGER HOLES — SECOND PASS from the OUTER face, ${fmt(toUnits(depth,units),3)}${units} deep, same ${fmt(toUnits(HFU,units),3)}${units} undersize as the first pass -- )`);
       lines.push(`( (wall ${fmt(toUnits(n.wallT,units),3)} + ${fmt(toUnits(n.overshoot,units),3)}${units} through into the bore). Op 1B broke OUT through this )`);
       lines.push(`( face; cutting the same holes from this side cleans those edges where the fingers seal. -- )`);
       [...c.holes].sort((a, b) => parseFloat(a.fromTSH) - parseFloat(b.fromTSH)).forEach(h => {
         const hx = c.sacLen + parseFloat(h.fromTSH);
         drillRoundHole(lines, {
           label: `HOLE H${h.num} (${h.interval || ""}) — 2nd pass, outer face`, x: hx, y: centerY(hx),
-          holeDia: parseFloat(h.diameter), depth,
+          holeDia: under(parseFloat(h.diameter), 0.05), depth,
           toolDiameter, units, feedRate, plungeRate, safeHeight, retractHeight: retractForPins, zTop: 0,
         });
       });
@@ -5028,6 +6871,190 @@ function generateSplitBlockGCode(params) {
     lines.push(`( The flue, SAC exit hole and TSH are on the face OPPOSITE the bore — no setup reaches both, )`);
     lines.push(`( so this flip is unavoidable. Everything is still cut before glue-up. )`);
     chambers.forEach((c, ci) => millNestOuter(c, ci));
+
+    // ── OPTIONAL: BODY OUTLINE — the very last pass(es) of the job ─────
+    // Two flavours of the finished flute body's plan silhouette on the
+    // flipped blank's outer face — the two outer flanks (following any
+    // bow), stepping inward where a shorter drone chamber ends, and
+    // straight across the foot:
+    //   "scribe" — a deep reference groove traced dead-CENTRE on the
+    //     line, to saw / round the glued body to by hand.
+    //   "cutout" — a full profile cut THROUGH the blank, the path offset
+    //     OUTWARD by the cutter radius so the finished edge lands exactly
+    //     on the silhouette, stepped down to through-thickness.
+    // Cut dead-last either way, so nothing machines over it.
+    if (outlinePass) {
+      const outlineMode = outlinePass === "cutout" ? "cutout" : "scribe";
+      const SCRIBE_DEPTH = 0.072;                       // deep, unmissable reference groove
+      const yTopCenter = yBlankMinTop + blankWidth / 2;
+      const mapFlipY = (yRaw) => 2 * yTopCenter - ((2 * yMid - yRaw) + yTableShift);
+      const chamberFoot = (ci) => chambers[ci].sacLen + chambers[ci].L;
+      // Outer silhouette flank at station x (raw flute coords): the extreme
+      // edge across every chamber that is still running at that x. For x<0
+      // — only when mpDoRough (a single shared mouthpiece actually gets
+      // machined; separate-pipe drones have no such shape) — this traces
+      // the mouthpiece dome/cap via the SAME mpWidthAt shape the rough pass
+      // above actually cuts, tapering to a point. Previously this silhouette
+      // stopped dead at x=0, so the cutout never actually separated the
+      // mouthpiece from the waste stock when one was present.
+      const flankAt = (x, side) => {
+        if (mpDoRough && x < -1e-9) {
+          const halfW = mpWidthAt(x);
+          return halfW > 1e-6 ? yMid + side * halfW : null;
+        }
+        let best = null;
+        for (let ci = 0; ci < chambers.length; ci++) {
+          const tl = chamberFoot(ci);
+          if (x > tl + 1e-9) continue;                  // this chamber has ended
+          const b = bowAmp === 0 ? 0 : bowAmp * Math.sin((Math.min(x, tl) / tl) * Math.PI);
+          const y = yOffs[ci] + b + side * (nest[ci].r + nest[ci].wallT);
+          if (best === null || (side > 0 ? y > best : y < best)) best = y;
+        }
+        return best;
+      };
+      const feet = [...new Set(chambers.map((_, ci) => +chamberFoot(ci).toFixed(6)))].sort((a, b) => a - b);
+      const mpTipX = -(mpDomeLen + mpCapLen);   // where the dome/cap tapers to zero width
+      const buildXs = () => {
+        const xs = [];
+        if (mpDoRough) {
+          // Mouthpiece region (its tip up to x=0), fine enough to trace the
+          // dome/cap's curve smoothly.
+          const NM = Math.max(16, Math.ceil((mpDomeLen + mpCapLen) / 0.12));
+          for (let i = 0; i <= NM; i++) xs.push(mpTipX * (1 - i / NM));
+        }
+        const N = Math.max(24, Math.ceil(maxLen / 0.25));
+        for (let i = 0; i <= N; i++) xs.push(maxLen * (i / N));
+        // straddle every intermediate foot so the silhouette's inward STEP
+        // is drawn as a step, not smeared across a sample interval
+        feet.forEach(f => { if (f > 1e-4 && f < maxLen - 1e-4) xs.push(f - 1e-4, f + 1e-4); });
+        return xs.sort((a, b) => a - b);
+      };
+      let pts = [];
+      buildXs().forEach(x => { const y = flankAt(x, +1); if (y != null) pts.push({ x, y }); });          // mouth → foot, high flank
+      buildXs().reverse().forEach(x => { const y = flankAt(x, -1); if (y != null) pts.push({ x, y }); }); // foot → mouth, low flank (foot cross happens between)
+      if (outlineMode === "cutout") {
+        // Cutter compensation: offset the silhouette OUTWARD (left of travel
+        // on this clockwise loop) by the tool radius so the tool's EDGE — not
+        // its centre — rides the outline and the finished body comes out
+        // exactly to size.
+        //
+        // This is done as a proper SEGMENT offset with mitered joins: each
+        // segment is shifted along its OWN normal, then adjacent shifted
+        // segments are joined at their true line intersection. The earlier
+        // per-vertex AVERAGED-normal offset under-shot and tilted at every
+        // sharp step — where the body plan steps inward as a shorter drone
+        // chamber ends — pulling the corner points ~(tool radius) below their
+        // neighbours. That left a little downward V (a triangular gouge) at
+        // each bore foot that cut into the wall thickness. Mitering the joins
+        // squares those steps off to clean 90° corners that stop exactly at
+        // the wall instead of biting into it.
+        const toolR = toolDiameter / 2;
+        const nPts = pts.length;
+        if (nPts >= 2) {
+          const MITER_LIMIT = 6;                 // clamp runaway spikes at very sharp convex corners
+          const seg = [];
+          for (let i = 0; i < nPts - 1; i++) {
+            let dx = pts[i + 1].x - pts[i].x, dy = pts[i + 1].y - pts[i].y;
+            const L = Math.hypot(dx, dy) || 1;
+            dx /= L; dy /= L;
+            const nx = -dy, ny = dx;             // left normal of this segment
+            seg.push({ dx, dy, nx, ny, px: pts[i].x + nx * toolR, py: pts[i].y + ny * toolR });
+          }
+          const off = [{ x: seg[0].px, y: seg[0].py }];   // offset start of the first segment
+          for (let i = 1; i < nPts - 1; i++) {
+            const a = seg[i - 1], b = seg[i];
+            const den = a.dx * b.dy - a.dy * b.dx;
+            let jx, jy;
+            if (Math.abs(den) < 1e-9) {          // (near-)collinear — no distinct corner
+              jx = pts[i].x + b.nx * toolR; jy = pts[i].y + b.ny * toolR;
+            } else {
+              const t = ((b.px - a.px) * b.dy - (b.py - a.py) * b.dx) / den;
+              jx = a.px + t * a.dx; jy = a.py + t * a.dy;
+              const mx = jx - pts[i].x, my = jy - pts[i].y, ml = Math.hypot(mx, my);
+              if (ml > MITER_LIMIT * toolR) {     // don't let a hairpin throw a huge spike
+                const k = (MITER_LIMIT * toolR) / (ml || 1);
+                jx = pts[i].x + mx * k; jy = pts[i].y + my * k;
+              }
+            }
+            off.push({ x: jx, y: jy });
+          }
+          const lastSeg = seg[nPts - 2];
+          off.push({ x: pts[nPts - 1].x + lastSeg.nx * toolR, y: pts[nPts - 1].y + lastSeg.ny * toolR });
+          pts = off;
+        }
+      }
+      const tracePath = (z) => {
+        const p0 = pts[0];
+        lines.push(`G0 X${fmt(toUnits(p0.x, units), 3)} Y${fmt(toUnits(mapFlipY(p0.y), units), 3)} Z${fmt(toUnits(retractForPins, units), 3)}`);
+        lines.push(`G1 Z${fmt(toUnits(z, units), 3)} F${fmt(toUnits(plungeRate, units), 1)}`);
+        pts.forEach(p => lines.push(`G1 X${fmt(toUnits(p.x, units), 3)} Y${fmt(toUnits(mapFlipY(p.y), units), 3)} F${fmt(toUnits(feedRate, units), 1)}`));
+        lines.push(`G0 Z${fmt(toUnits(safeHeight, units), 3)}`);
+      };
+      lines.push("");
+      if (outlineMode === "scribe") {
+        lines.push(`( -- BODY-OUTLINE SCRIBE (optional, LAST pass) — ${fmt(toUnits(SCRIBE_DEPTH, units), 3)}${units} deep reference groove -- )`);
+        lines.push(`( The finished body's plan silhouette, traced dead-centre on the outer face: outer flanks, )`);
+        lines.push(`( drone-foot steps, and across the foot. Saw / round the glued body to this line — cut on )`);
+        lines.push(`( the WASTE side of it, the scribed groove itself IS the finished outline. )`);
+        tracePath(-SCRIBE_DEPTH);
+      } else {
+        // ── FULL CUTOUT — BOTH HALVES, WITH REGISTRATION TABS ──────────
+        // The silhouette is profile-cut clear through the BOTTOM blank and
+        // the flipped TOP blank alike, but 6 evenly-spaced TABS per half
+        // are left standing on the final depths. The alignment pins live
+        // in the waste land beside the bore — the tabs keep each body
+        // half attached to its pin-bearing rails, so the pin registration
+        // survives handling and GLUE-UP; break or saw the tabs afterwards
+        // to free the glued body.
+        const cutDepth = blankThick + 0.04;             // clear through, same as the mouthpiece rough
+        const levels = Math.max(1, Math.ceil(cutDepth / stepdown));
+        const TABS = 6;
+        const tabH = Math.min(0.12, Math.max(0.06, blankThick * 0.18));  // material left under each tab
+        const tabTopZ = -(blankThick - tabH);
+        const tabLen = 0.32 + toolDiameter;
+        // cumulative arc length → 6 evenly spaced tab centres
+        const cum = [0];
+        for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+        const totalLen = cum[cum.length - 1];
+        const tabCenters = Array.from({ length: TABS }, (_, k) => ((k + 0.5) / TABS) * totalLen);
+        const inTab = (d) => tabCenters.some(c => Math.abs(d - c) < tabLen / 2);
+        // pin-swath safety: the cutter's outer edge must clear the pins
+        const swath = Math.max(...nest.map(n => n.wallT)) + toolDiameter;
+        const pinInset = stockMarginY * 0.5;
+        const pinClear = pinInset > swath + 0.1;
+        lines.push(`( -- BODY-OUTLINE FULL CUTOUT (optional, LAST passes) — BOTH halves, profile cut THROUGH -- )`);
+        lines.push(`( The finished body's plan silhouette, tool-radius compensated OUTWARD, stepped down in )`);
+        lines.push(`( ${levels} passes to ${fmt(toUnits(cutDepth, units), 3)}${units} on the BOTTOM blank, then the flipped TOP blank. )`);
+        lines.push(`( ${TABS} TABS per half (${fmt(toUnits(tabLen, units), 2)}${units} long, ${fmt(toUnits(tabH, units), 3)}${units} of material) are left on the deep passes: they )`);
+        lines.push(`( hold each body half to the waste rails that carry the ALIGNMENT PINS, so the pin )`);
+        lines.push(`( registration survives handling and glue-up. Break or saw the tabs off afterwards. )`);
+        if (!pinClear) {
+          lines.push(`( ⚠⚠ PIN CLEARANCE: the cut swath (wall ${fmt(toUnits(Math.max(...nest.map(n => n.wallT)), units), 3)} + cutter ${fmt(toUnits(toolDiameter, units), 3)}) reaches within )`);
+          lines.push(`( ${fmt(toUnits(Math.max(0, pinInset - swath), units), 3)}${units} of the pin stations — increase stock margin Y or use a smaller cutter, )`);
+          lines.push(`( or the cutout may graze the alignment pin holes. )`);
+        }
+        const halvesToCut = [
+          { name: "BOTTOM half (seam side up, native Y)", mapY: (yRaw) => yRaw },
+          { name: "TOP half (flipped, outer face up)", mapY: mapFlipY },
+        ];
+        halvesToCut.forEach(hf => {
+          lines.push(`( -- outline cutout: ${hf.name} -- )`);
+          for (let lv = 1; lv <= levels; lv++) {
+            const z = -Math.min(cutDepth, lv * stepdown);
+            const tabsActive = z < tabTopZ;
+            lines.push(`( pass ${lv}/${levels} — Z${fmt(toUnits(z, units), 3)}${tabsActive ? " — riding over the " + TABS + " tabs" : ""} )`);
+            const p0 = pts[0];
+            lines.push(`G0 X${fmt(toUnits(p0.x, units), 3)} Y${fmt(toUnits(hf.mapY(p0.y), units), 3)} Z${fmt(toUnits(retractForPins, units), 3)}`);
+            lines.push(`G1 Z${fmt(toUnits(tabsActive && inTab(0) ? tabTopZ : z, units), 3)} F${fmt(toUnits(plungeRate, units), 1)}`);
+            pts.forEach((p, pi) => {
+              const zi = tabsActive && inTab(cum[pi]) ? tabTopZ : z;
+              lines.push(`G1 X${fmt(toUnits(p.x, units), 3)} Y${fmt(toUnits(hf.mapY(p.y), units), 3)} Z${fmt(toUnits(zi, units), 3)} F${fmt(toUnits(feedRate, units), 1)}`);
+            });
+            lines.push(`G0 Z${fmt(toUnits(safeHeight, units), 3)}`);
+          }
+        });
+      }
+    }
   }
 
   lines.push("");
@@ -5070,7 +7097,10 @@ function generateTubeDrillingGCode(params) {
   // (M0) between chambers to re-fixture each tube.
   const oneBody = chambers.length > 1 && droneBody === "solid";
   const effSetup = oneBody ? "fixed" : setupMode;
-  const yOffs = oneBody ? chamberYOffsets(chambers) : chambers.map(() => 0);
+  // Same handedness mirror as the split-block generator: the drilled body
+  // sits nest-up with table +Y running opposite to the model's +Z stack.
+  const yOffsAsc = oneBody ? chamberYOffsets(chambers) : chambers.map(() => 0);
+  const yOffs = yOffsAsc.map(v => yOffsAsc[yOffsAsc.length - 1] - v);
 
   const lines = [];
   lines.push(...gcodeHeader(dialect, units, {
@@ -5223,6 +7253,11 @@ function exportPDF({ bore, L, holes, holeCount, rootNote, totalLen, sacLen, hand
   // 6. Finishing checklist
   drawFinishingChecklistPage(doc, data);
 
+  // 7. Fingering chart — a keep-this-card reference for the finished
+  // instrument, so it goes last rather than alongside the construction
+  // pages above it.
+  drawFingeringChartPage(doc, data);
+
   const safeName = rootNote.name.replace(/[#\/]/g,"_");
   doc.save(`${isAntler ? "antler" : "naf"}_flute_${holeCount}hole_${safeName}_${bore}bore${isDrone?`_${drones.length}chamber`:""}_workshop_packet.pdf`);
 }
@@ -5239,6 +7274,7 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
   const [handSize,       setHandSize]       = useState("average");
   const [antlerShape,    setAntlerShape]    = useState("straight");
   const [pipeMaterial,   setPipeMaterial]   = useState("straight"); // "straight" (default, like a normal NAF) | "antler"
+  const [woodSpecies, setWoodSpecies] = useState("cedar");   // procedural wood grain in the 3D preview — "none" for a plain flat color
   const [showAntlerGuide,setShowAntlerGuide]= useState(false);
   const [showAntlerAssistant, setShowAntlerAssistant] = useState(false);
   const [showTuner,      setShowTuner]      = useState(false);
@@ -5267,15 +7303,30 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
   const [nestFlueDepthIn, setNestFlueDepthIn] = useState(null);
   const [nestTshLengthIn, setNestTshLengthIn] = useState(null);
   const [nestFippleAngleDeg, setNestFippleAngleDeg] = useState(0);
+  const [nestAdvOpen, setNestAdvOpen] = useState(false);   // advanced nest sliders collapsed by default
   const [nestRampCurve, setNestRampCurve] = useState(null); // 0–1; curves the ramp face down (concave)
   const [nestTshWidthIn, setNestTshWidthIn] = useState(null); // TSH (and flue) width override
   const [nestWallThicknessIn, setNestWallThicknessIn] = useState(null); // bore wall thickness (null = auto from bore)
+  // Blow / breath hole (mouthpiece passage): null = auto = the Crafting-
+  // Dimensions recommendation for this bore + key (Wolf: 5/16" × 2-3/4"
+  // for a 3/4"-bore G4). Set values flow to the 3D preview, G-code,
+  // Flow Studio and the library save state.
+  const [breathHoleDiaIn, setBreathHoleDiaIn] = useState(null);
+  const [sacLenIn, setSacLenIn] = useState(null);   // SAC length override (null = capped auto: bore×4.6, clamped 1.5–5″)
+  const [mouthpieceMarginIn, setMouthpieceMarginIn] = useState(null);   // mouthpiece trim-margin override (null = flat 2.0″ default)
+  const [breathHoleLenIn, setBreathHoleLenIn] = useState(null);
   const [nestBacksetIn, setNestBacksetIn] = useState(null);   // Prairie: 0 to D/3, bore extending back under the flue
   const [nestTipFlatIn, setNestTipFlatIn] = useState(null);   // Prairie: ~1/100" flat at the cutting-edge tip
   const [nestChimneyIn, setNestChimneyIn] = useState(null);   // Prairie: bird chimney height over the TSH (0 = flat bird)
   const [nestTipHeightIn, setNestTipHeightIn] = useState(null); // fipple tip height ABOVE the flue floor (default 1/128")
   const [nestFlueLengthIn, setNestFlueLengthIn] = useState(null); // flue flat-run length (null = auto: 2× TSH width)
   const [showNestLabels, setShowNestLabels] = useState(true);
+  const [dimVis, setDimVis] = useState(loadNestDimVis);
+  useEffect(() => {
+    const onVis = () => setDimVis(loadNestDimVis());
+    window.addEventListener("naf-dimvis-updated", onVis);
+    return () => window.removeEventListener("naf-dimvis-updated", onVis);
+  }, []);
   const [nestLibrary, setNestLibrary] = useState(() => loadNestLibrary());
   const [nestSaveName, setNestSaveName] = useState("");
   const [nestSaveMsg, setNestSaveMsg] = useState("");
@@ -5318,6 +7369,10 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     setNestRampCurve(c.nestRampCurve !== undefined ? c.nestRampCurve : null);
     setNestTshWidthIn(c.nestTshWidthIn !== undefined ? c.nestTshWidthIn : null);
     setNestWallThicknessIn(c.nestWallThicknessIn !== undefined ? c.nestWallThicknessIn : null);
+    setBreathHoleDiaIn(c.breathHoleDiaIn !== undefined ? c.breathHoleDiaIn : null);
+    setSacLenIn(c.sacLenIn !== undefined ? c.sacLenIn : null);
+    setMouthpieceMarginIn(c.mouthpieceMarginIn !== undefined ? c.mouthpieceMarginIn : null);
+    setBreathHoleLenIn(c.breathHoleLenIn !== undefined ? c.breathHoleLenIn : null);
     setNestBacksetIn(c.nestBacksetIn !== undefined ? c.nestBacksetIn : null);
     setNestTipFlatIn(c.nestTipFlatIn !== undefined ? c.nestTipFlatIn : null);
     setNestChimneyIn(c.nestChimneyIn !== undefined ? c.nestChimneyIn : null);
@@ -5368,10 +7423,13 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
   // so this never introduces a discrepancy against the L computed just above.
   const melodyGeom = buildChamberGeometry({
     bore, freq: rootFreq, holeCount, handSize, holeShapeKey: holeShape, ergoOverride,
+    sacLenIn,   // per-flute SAC override (null = capped auto)
+    mouthpieceMarginIn,   // per-flute mouthpiece trim-margin override (null = flat 2.0" default)
   });
   const holes     = melodyGeom.holes;
   const theoreticalHoles = melodyGeom.theoreticalHoles || [];
   const sacLen    = parseFloat(melodyGeom.sacLen);
+  const mouthpieceMargin = parseFloat(melodyGeom.mouthpieceMargin);
   const totalLen  = melodyGeom.totalLen;
   const shW       = melodyGeom.shW;
   const shL       = melodyGeom.shL;
@@ -5403,6 +7461,14 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     const geom = buildChamberGeometry({
       bore: d.bore, freq, holeCount: d.playable ? (d.holeCount || 2) : 0,
       handSize, holeShapeKey: holeShape, ergoOverride: null, // ergonomic adjustment is melody-only for now (its own UI is scoped to the melody chamber)
+      // Drone SACs EQUALIZE to the melody's effective SAC: every chamber's
+      // TSH then lands at the same X and the nests sit in one row (one bird
+      // line, aligned windows in the CNC shell) — standard drone-NAF layout.
+      sacLenIn: parseFloat(melodyGeom.sacLen),
+      // Same equalization for the mouthpiece trim margin — one shared value
+      // across every tube in the assembly rather than an independent guess
+      // per chamber.
+      mouthpieceMarginIn: parseFloat(melodyGeom.mouthpieceMargin),
     });
 
     return {
@@ -5438,7 +7504,9 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     : 0;
   const totalBoreWidth = allDronesValid ? bore + droneResults.reduce((s,d)=>s+d.bore,0) : bore;
 
-  const validNotes = NOTES.filter(n => { const tl = tubeLen(n.freq, r); return tl >= 5 && tl <= 52; });
+  // Every key is selectable now — nothing gets dimmed or blocked. The
+  // recommended-bore message below (boreRec) is where extreme choices get
+  // called out honestly instead.
 
   // Recommended bore diameter for the currently selected melody key — computed
   // independently of whatever bore is currently chosen, so it always reflects
@@ -5473,8 +7541,26 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
   const autoTshLengthIn = FLUTE_CONST.soundHoleLength(bore);
   const autoRampAngleDeg = FLUTE_CONST.SAC_EXIT_RAMP_ANGLE_DEG; // Russ Wolf's ~30°, applied directly now — see buildChamberMesh
   const effRampAngleDeg = nestRampAngleDeg != null ? nestRampAngleDeg : autoRampAngleDeg;
+  // Body wall thickness: the same auto formula every consumer (3D preview,
+  // CNC blank sizing, mouthpiece, hole depths) already falls back to when
+  // no explicit value is set — max(0.05", 28% of the bore radius).
+  const autoWallThicknessIn = Math.max(0.05, (bore / 2) * 0.28);
+  const effWallThicknessIn = nestWallThicknessIn != null ? nestWallThicknessIn : autoWallThicknessIn;
   const effFlueDepthIn  = nestFlueDepthIn  != null ? nestFlueDepthIn  : autoFlueDepthIn;
   const effTshLengthIn  = nestTshLengthIn  != null ? nestTshLengthIn  : autoTshLengthIn;
+  // Effective values for the advanced (full Flow Studio set) nest sliders —
+  // same auto fallbacks the geometry itself uses.
+  const effRampCurveAdv  = nestRampCurve != null ? nestRampCurve : 0;
+  const effTshWidthAdv   = nestTshWidthIn != null ? nestTshWidthIn : parseFloat(shW);
+  const effFlueLenAdv    = nestFlueLengthIn != null ? nestFlueLengthIn : 2 * effTshWidthAdv;
+  const effTipHeightAdv  = nestTipHeightIn != null ? nestTipHeightIn : 1 / 128;
+  const effTipFlatAdv    = nestTipFlatIn != null ? nestTipFlatIn : 0.01;
+  const effBacksetAdv    = nestBacksetIn != null ? nestBacksetIn : 0;
+  const effChimneyAdv    = nestChimneyIn != null ? nestChimneyIn : 0;
+  const anyNestOverride  = nestRampAngleDeg != null || nestFlueDepthIn != null || nestTshLengthIn != null
+    || nestFippleAngleDeg !== 0 || nestRampCurve != null || nestTshWidthIn != null || nestWallThicknessIn != null
+    || nestBacksetIn != null || nestTipFlatIn != null || nestChimneyIn != null || nestTipHeightIn != null
+    || nestFlueLengthIn != null;
 
   const applyNest = (nest) => {
     setNestName(nest.name || null);
@@ -5498,6 +7584,17 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     setNestTipFlatIn(null); setNestChimneyIn(null); setNestTipHeightIn(null);
     setNestFlueLengthIn(null);
   };
+  // On a pristine mount (nothing customized, no nest applied), start from
+  // the MOST RECENTLY SAVED nest in the Library — the advanced sliders stay
+  // tucked away and the flute simply uses your latest design. Runs once;
+  // anything the user (or a loaded flute config) sets afterwards wins.
+  useEffect(() => {
+    if (nestName != null || anyNestOverride) return;
+    const lib = loadNestLibrary();
+    if (!lib.length) return;
+    const latest = [...lib].sort((a, b) => new Date(b.savedAt || 0) - new Date(a.savedAt || 0))[0];
+    if (latest) applyNest(latest);
+  }, []); // mount only — deliberately not re-running on state changes
   const doSaveNest = () => {
     const entry = saveNestToLibrary(nestSaveName, {
       rampAngleDeg: effRampAngleDeg, flueDepthIn: effFlueDepthIn,
@@ -5553,6 +7650,12 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     e.target.value = ""; // allow re-selecting the same file later
   };
 
+  // Breath (blow) hole — the Crafting-Dimensions recommendation for THIS
+  // key + bore, unless the user has set an explicit size below.
+  const bhRec = CRAFTING_DIMS.recommendBreathHole(bore, rootFreq);
+  const effBreathHoleDiaIn = breathHoleDiaIn != null ? breathHoleDiaIn : bhRec.dia;
+  const effBreathHoleLenIn = breathHoleLenIn != null ? breathHoleLenIn : bhRec.len;
+
   const chambersForDiagram = [{
     L, sacLen, bore, holes, playable:true, note:rootNote, label:"MELODY",
     shW: (nestTshWidthIn != null ? nestTshWidthIn : shW),
@@ -5560,8 +7663,8 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     nestRampAngleDeg, nestFlueDepthIn, nestFippleAngleDeg, nestRampCurve,
     nestWallThicknessIn, nestBacksetIn, nestTipFlatIn, nestChimneyIn,
     nestTipHeightIn, nestFlueLengthIn,
-    breathHoleWidthIn: FLUTE_CONST.breathHoleWidth(bore),
-    breathHoleLengthIn: FLUTE_CONST.breathHoleLength(bore),
+    breathHoleWidthIn: effBreathHoleDiaIn,
+    breathHoleLengthIn: effBreathHoleLenIn,
   }];
   if (fluteStyle === "drone" && allDronesValid) {
     droneResults.forEach((d, i) => {
@@ -5572,8 +7675,8 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
         nestRampAngleDeg, nestFlueDepthIn, nestFippleAngleDeg, nestRampCurve,
         nestWallThicknessIn, nestBacksetIn, nestTipFlatIn, nestChimneyIn,
         nestTipHeightIn, nestFlueLengthIn,
-        breathHoleWidthIn: FLUTE_CONST.breathHoleWidth(d.bore),
-        breathHoleLengthIn: FLUTE_CONST.breathHoleLength(d.bore),
+        breathHoleWidthIn: effBreathHoleDiaIn,      // one blow-hole size across the instrument
+        breathHoleLengthIn: effBreathHoleLenIn,
       });
     });
   }
@@ -5591,8 +7694,8 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
     L: parseFloat(L),
     sacLen: parseFloat(sacLen),
     shW: parseFloat(nestTshWidthIn != null ? nestTshWidthIn : shW),
-    breathHoleWidthIn: FLUTE_CONST.breathHoleWidth(bore),
-    breathHoleLengthIn: FLUTE_CONST.breathHoleLength(bore),
+    breathHoleWidthIn: effBreathHoleDiaIn,
+    breathHoleLengthIn: effBreathHoleLenIn,
     shL: parseFloat(nestTshLengthIn != null ? nestTshLengthIn : shL),
     flueDepthIn: parseFloat(nestFlueDepthIn != null ? nestFlueDepthIn : FLUTE_CONST.flueDepth(bore)),
     rampAngleDeg: nestRampAngleDeg != null ? nestRampAngleDeg : FLUTE_CONST.SAC_EXIT_RAMP_ANGLE_DEG,
@@ -5760,41 +7863,6 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
       </div>
 
       <div style={card}>
-        <span style={lbl}>{stepNum()} Melody Bore Diameter</span>
-        {boreRec && (
-          <div style={{marginBottom:9,fontSize:12,color:"#7acc44",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <span>💡 For key <strong>{noteKey}</strong>, recommended bore:</span>
-            <button onClick={()=>setBore(boreRec.val)}
-              style={{...pill(bore===boreRec.val,"#7acc44"),padding:"3px 10px",fontSize:12}}>
-              {boreRec.label} <span style={{fontSize:9,opacity:0.75,marginLeft:2}}>({boreRec.mm}mm)</span>
-            </button>
-            <span style={{color:muted,fontSize:11}}>
-              {boreRec.reachesSweetSpot
-                ? `→ ~${fmt(boreRec.tubeLen,1)}" tube, comfortable to hold & finger`
-                : `→ ~${fmt(boreRec.tubeLen,1)}" tube — this key runs long regardless of bore; widest bore shortens it slightly`}
-            </span>
-          </div>
-        )}
-        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {BORES.map(b=>(
-            <button key={b.val} onClick={()=>setBore(b.val)} style={{...pill(bore===b.val),position:"relative"}}>
-              {boreRec && b.val===boreRec.val && bore!==b.val && (
-                <span style={{position:"absolute",top:-6,right:-4,fontSize:10}} title={`Recommended for ${noteKey}`}>⭐</span>
-              )}
-              {b.label}<span style={{fontSize:9,opacity:0.7,marginLeft:3}}>({b.mm}mm)</span>
-            </button>
-          ))}
-        </div>
-        {bore>1.25 && (
-          <div style={{marginTop:8,fontSize:12,color:"#fbbf24"}}>
-            {pipeMaterial === "antler"
-              ? "⚠ Large bore requires thick antler walls and a long straight section — common in elk or moose antler."
-              : "⚠ Large bore — make sure your pipe stock (PVC, bamboo, or wood dowel) has enough wall thickness at this diameter."}
-          </div>
-        )}
-      </div>
-
-      <div style={card}>
         <span style={lbl}>{stepNum()} Flute Type (hole count)</span>
         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
           {[3,4,5,6,7].map(n=>(
@@ -5881,50 +7949,6 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
         )}
       </div>
 
-      <div style={card}>
-        <span style={lbl}>Bird / Totem Block <span style={{color:muted,textTransform:"none",fontWeight:400,fontSize:10}}>(decorative — shown in the 3D preview only)</span></span>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginTop:8}}>
-          {[
-            { key: "none", label: "None" },
-            { key: "default", label: "Default" },
-            { key: "dolphin", label: BIRD_BLOCKS.dolphin.label },
-            { key: "kokopelli", label: BIRD_BLOCKS.kokopelli.label },
-          ].map(({ key, label }) => (
-            <button key={key} onClick={()=>setBirdKey(key)} style={{
-              ...pill(birdKey===key), textAlign:"center", padding:"10px 12px", fontSize:14, fontWeight:800,
-            }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {birdKey === "default" && (
-          <div style={{marginTop:10,padding:"10px 12px",background:bg2,borderRadius:8,fontSize:11,color:muted,lineHeight:1.6}}>
-            The functional block bird from the wind-chamber model: it roofs the flue and covers the SAC exit opening, sitting flush on the tube with its edge exactly at the sound hole. Its chimney height is adjustable in the Flow Studio's nest controls.
-          </div>
-        )}
-        {birdKey !== "none" && birdKey !== "default" && (
-          <div style={{marginTop:10,padding:"10px 12px",background:bg2,borderRadius:8,fontSize:11,color:muted,lineHeight:1.6}}>
-            Sized proportionally to your bore diameter and shown resting above the sound hole, the way a real removable bird/block/fetish sits on a finished flute. Decorative only — it's not cut into the flute and isn't included in the drilling template, PDF, or G-code.
-            <div style={{marginTop:4,fontSize:10,color:"#6a5a45"}}>{BIRD_BLOCKS[birdKey].attribution}</div>
-            <div style={{marginTop:10}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
-                <span>Height above sound hole</span>
-                <span style={{color:muted}}>{birdHeight <= 0.02 ? "Flush" : `${birdHeight.toFixed(2)}" gap`}</span>
-              </div>
-              <input
-                type="range" min={0} max={1} step={0.01} value={birdHeight}
-                onChange={e=>setBirdHeight(parseFloat(e.target.value))}
-                style={{width:"100%"}}
-              />
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:9.5,color:"#6a5a45",marginTop:2}}>
-                <span>Flush on sound hole</span>
-                <span>Original (1" gap)</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {pipeMaterial === "antler" && (
         <div style={card}>
           <span style={lbl}>{stepNum()} Antler Shape</span>
@@ -5955,32 +7979,32 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
         </div>
         {mode==="key" ? (<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7,flexWrap:"wrap",gap:6}}>
-            <div style={{fontSize:11,color:muted}}>Root note (all holes closed) — dimmed notes are out of range for this bore</div>
+            <div style={{fontSize:11,color:muted}}>Root note (all holes closed) — every key is selectable; see the recommended bore below</div>
             <button onClick={()=>setPlaySamples(p=>!p)}
               style={{...pill(playSamples,"#4a9cd6"),padding:"4px 10px",fontSize:11}}>
               {playSamples ? "🔊" : "🔇"} Play note on select
             </button>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-            {NOTES.map(n=>{
-              const ok = !!validNotes.find(v=>v.name===n.name);
-              return (
-                <button key={n.name} onClick={()=>{ if(!ok) return; setNoteKey(n.name); if(playSamples) playNoteSample(n.name); }}
-                  style={{...pill(noteKey===n.name),opacity:ok?1:0.28,cursor:ok?"pointer":"not-allowed",padding:"5px 10px",fontSize:12}}>
-                  {n.name}
-                </button>
-              );
-            })}
-          </div>
+          <NoteKeyPicker notes={NOTES} value={noteKey} onSelect={setNoteKey} pill={pill} playSamples={playSamples}
+            isOk={() => true} />
+          <SoundCredits/>
           {boreRec && (
             <div style={{marginTop:9,fontSize:12,color:bore===boreRec.val?"#7acc44":"#d4a05a",lineHeight:1.5}}>
               {bore===boreRec.val
                 ? (boreRec.reachesSweetSpot
                     ? `✓ Current bore (${boreRec.label}) is the recommended size for ${noteKey}.`
-                    : `✓ Current bore (${boreRec.label}) is the best available fit for ${noteKey} — this key runs a long tube no matter the bore.`)
+                    : boreRec.extremeTooLong
+                      ? `Current bore (${boreRec.label}) is the best available fit for ${noteKey} — but this key still runs to a ${fmt(boreRec.tubeLen,1)}" tube, well beyond typical hand-held NAF length no matter the bore.`
+                      : boreRec.extremeTooShort
+                        ? `Current bore (${boreRec.label}) is the best available fit for ${noteKey} — but this key still lands at only ${fmt(boreRec.tubeLen,1)}", leaving little room for a proper sound chamber alongside the SAC.`
+                        : `✓ Current bore (${boreRec.label}) is the best available fit for ${noteKey} — this key runs a long tube no matter the bore.`)
                 : (boreRec.reachesSweetSpot
-                    ? <>💡 Recommended bore for <strong>{noteKey}</strong> is <strong>{boreRec.label}</strong> ({boreRec.mm}mm) — see step ② above to change it.</>
-                    : <>💡 For <strong>{noteKey}</strong>, the widest bore (<strong>{boreRec.label}</strong>) trims the tube slightly — see step ② above to change it.</>)}
+                    ? <>💡 Recommended bore for <strong>{noteKey}</strong> is <strong>{boreRec.label}</strong> ({boreRec.mm}mm) — see step {CIRC[_step]} below to change it.</>
+                    : boreRec.extremeTooLong
+                      ? <>💡 For <strong>{noteKey}</strong>, the best available bore is <strong>{boreRec.label}</strong> — but expect a ~{fmt(boreRec.tubeLen,1)}" tube, well beyond typical hand-held length. See step {CIRC[_step]} below.</>
+                      : boreRec.extremeTooShort
+                        ? <>💡 For <strong>{noteKey}</strong>, the best available bore is <strong>{boreRec.label}</strong> — but this key only reaches a ~{fmt(boreRec.tubeLen,1)}" tube, tight for holes and SAC to share. See step {CIRC[_step]} below.</>
+                        : <>💡 For <strong>{noteKey}</strong>, the widest bore (<strong>{boreRec.label}</strong>) trims the tube slightly — see step {CIRC[_step]} below to change it.</>)}
             </div>
           )}
         </>) : (<>
@@ -5990,6 +8014,45 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
             style={{background:bg2,border:`1px solid ${border}`,color:bone,padding:"8px 14px",width:130,borderRadius:6,fontSize:14}}
             placeholder="inches"/>
         </>)}
+      </div>
+
+      <div style={card}>
+        <span style={lbl}>{stepNum()} Melody Bore Diameter</span>
+        {boreRec && (
+          <div style={{marginBottom:9,fontSize:12,color:boreRec.extreme?"#d4a05a":"#7acc44",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            <span>💡 For key <strong>{noteKey}</strong>, recommended bore:</span>
+            <button onClick={()=>setBore(boreRec.val)}
+              style={{...pill(bore===boreRec.val,boreRec.extreme?"#d4a05a":"#7acc44"),padding:"3px 10px",fontSize:12}}>
+              {boreRec.label} <span style={{fontSize:9,opacity:0.75,marginLeft:2}}>({boreRec.mm}mm)</span>
+            </button>
+            <span style={{color:muted,fontSize:11}}>
+              {boreRec.reachesSweetSpot
+                ? `→ ~${fmt(boreRec.tubeLen,1)}" tube, comfortable to hold & finger`
+                : boreRec.extremeTooLong
+                  ? `→ ~${fmt(boreRec.tubeLen,1)}" tube — well beyond typical hand-held NAF length; a curved/antler shape or a multi-piece build may help`
+                  : boreRec.extremeTooShort
+                    ? `→ ~${fmt(boreRec.tubeLen,1)}" tube — very little room left for a sound chamber alongside the SAC at this pitch`
+                    : `→ ~${fmt(boreRec.tubeLen,1)}" tube — this key runs long regardless of bore; widest bore shortens it slightly`}
+            </span>
+          </div>
+        )}
+        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+          {BORES.map(b=>(
+            <button key={b.val} onClick={()=>setBore(b.val)} style={{...pill(bore===b.val),position:"relative"}}>
+              {boreRec && b.val===boreRec.val && bore!==b.val && (
+                <span style={{position:"absolute",top:-6,right:-4,fontSize:10}} title={`Recommended for ${noteKey}`}>⭐</span>
+              )}
+              {b.label}<span style={{fontSize:9,opacity:0.7,marginLeft:3}}>({b.mm}mm)</span>
+            </button>
+          ))}
+        </div>
+        {bore>1.25 && (
+          <div style={{marginTop:8,fontSize:12,color:"#fbbf24"}}>
+            {pipeMaterial === "antler"
+              ? "⚠ Large bore requires thick antler walls and a long straight section — common in elk or moose antler."
+              : "⚠ Large bore — make sure your pipe stock (PVC, bamboo, or wood dowel) has enough wall thickness at this diameter."}
+          </div>
+        )}
       </div>
 
       {fluteStyle==="drone" && (<>
@@ -6066,19 +8129,34 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
                   ))}
                 </div>
                 <div style={{fontSize:10,color:muted,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Root Note (this chamber, independent of melody)</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {NOTES.map(n=>{
-                    const r2 = d.bore/2;
-                    const tl = tubeLen(n.freq, r2);
-                    const ok = tl >= 5 && tl <= 52;
-                    return (
-                      <button key={n.name} onClick={()=>{ if(!ok) return; setDroneNoteKeyAt(i,n.name); if(playSamples) playNoteSample(n.name); }}
-                        style={{...pill((d.noteKey||noteKey)===n.name),opacity:ok?1:0.28,cursor:ok?"pointer":"not-allowed",padding:"5px 10px",fontSize:12}}>
-                        {n.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                <NoteKeyPicker notes={NOTES} value={d.noteKey || noteKey} onSelect={val => setDroneNoteKeyAt(i, val)} pill={pill} playSamples={playSamples}
+                  isOk={() => true} />
+                {(() => {
+                  const droneNoteFreq = NOTES.find(n => n.name === (d.noteKey || noteKey))?.freq;
+                  if (!droneNoteFreq) return null;
+                  const { best, reachesSweetSpot, extremeTooLong, extremeTooShort } = recommendedBores(droneNoteFreq);
+                  const atRec = d.bore === best.val;
+                  return (
+                    <div style={{marginTop:9,fontSize:12,color:atRec?"#7acc44":"#d4a05a",lineHeight:1.5}}>
+                      {atRec
+                        ? (reachesSweetSpot
+                            ? `✓ Current bore (${best.label}) is the recommended size for ${d.noteKey || noteKey}.`
+                            : extremeTooLong
+                              ? `Current bore (${best.label}) is the best fit for ${d.noteKey || noteKey} — but this key still runs to a ${fmt(best.tubeLen,1)}" tube, longer than typical.`
+                              : extremeTooShort
+                                ? `Current bore (${best.label}) is the best fit for ${d.noteKey || noteKey} — but this key still lands at only ${fmt(best.tubeLen,1)}", tight for holes to fit.`
+                                : `✓ Current bore (${best.label}) is the best available fit for ${d.noteKey || noteKey}.`)
+                        : <>💡 Recommended bore for <strong>{d.noteKey || noteKey}</strong> is <strong>{best.label}</strong> ({best.mm}mm)
+                            {!reachesSweetSpot && (extremeTooLong
+                              ? <> — heads up, this key still runs to a {fmt(best.tubeLen,1)}" tube, longer than typical.</>
+                              : extremeTooShort
+                                ? <> — heads up, this key runs to just {fmt(best.tubeLen,1)}", tight for holes to fit.</>
+                                : null)}
+                            {" "}<button onClick={()=>setDroneBoreAt(i,best.val)} style={{...pill(false,"#7acc44"),padding:"2px 9px",fontSize:11,marginLeft:4}}>Set bore</button>
+                          </>}
+                    </div>
+                  );
+                })()}
               </>) : (<>
                 <div style={{fontSize:10,color:muted,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.06em"}}>Drone Pitch (relative to melody root)</div>
                 <div style={{display:"flex",flexDirection:"column",gap:5}}>
@@ -6139,9 +8217,32 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
             <div style={{fontSize:11,color:muted}}>{rootNote.cents!==0?(rootNote.cents>0?"+":"")+rootNote.cents+"¢ off":"in tune"}</div>
           </div>
           <div style={{...card,marginBottom:0}}>
-            <div style={{fontSize:10,color:muted}}>SAC Length</div>
+            <div style={{fontSize:10,color:muted}}>SAC Length {sacLenIn==null
+              ? <span style={{color:"#6a5a45"}}>(auto: bore×4.6, floor 1.5″)</span>
+              : <span style={{color:"#7dd3fc"}}>(custom)</span>}</div>
             <div style={{fontSize:28,fontWeight:800,fontFamily:"monospace"}}>{fmt(sacLen)}"</div>
-            <div style={{fontSize:11,color:muted}}>Total: {totalLen}"</div>
+            <input type="range" min={1.0} max={16} step={0.05} value={parseFloat(sacLen)}
+              onChange={e=>setSacLenIn(parseFloat(e.target.value))} style={{width:"100%",marginTop:4}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:11,color:muted}}>Total: {totalLen}"</div>
+              {sacLenIn!=null && (
+                <button onClick={()=>setSacLenIn(null)} style={{background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+          </div>
+          <div style={{...card,marginBottom:0}}>
+            <div style={{fontSize:10,color:muted}}>Mouthpiece Margin {mouthpieceMarginIn==null
+              ? <span style={{color:"#6a5a45"}}>(default: 2.0″)</span>
+              : <span style={{color:"#7dd3fc"}}>(custom)</span>}</div>
+            <div style={{fontSize:28,fontWeight:800,fontFamily:"monospace"}}>{fmt(mouthpieceMargin)}"</div>
+            <input type="range" min={0} max={6} step={0.05} value={parseFloat(mouthpieceMargin)}
+              onChange={e=>setMouthpieceMarginIn(parseFloat(e.target.value))} style={{width:"100%",marginTop:4}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:11,color:muted}}>Trim stock, not acoustic — your call</div>
+              {mouthpieceMarginIn!=null && (
+                <button onClick={()=>setMouthpieceMarginIn(null)} style={{background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to default</button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -6178,21 +8279,42 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
                     <tr style={{borderBottom:"1px solid #5a4015"}}>
                       <th style={{textAlign:"left",padding:"4px 6px",color:amber}}>Hole</th>
                       <th style={{textAlign:"left",padding:"4px 6px",color:amber}}>Opens</th>
+                      <th style={{textAlign:"right",padding:"4px 6px",color:amber}}>Note</th>
+                      <th style={{textAlign:"right",padding:"4px 6px",color:amber}}>Freq</th>
                       <th style={{textAlign:"right",padding:"4px 6px",color:amber}}>From TSH</th>
                       <th style={{textAlign:"right",padding:"4px 6px",color:amber}}>Start Ø</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dres.holes.map(h=>(
-                      <tr key={h.num} style={{borderBottom:"1px solid #251c08"}}>
-                        <td style={{padding:"5px 6px",color:"#f59e0b",fontWeight:700,fontFamily:"monospace"}}>H{h.num}</td>
-                        <td style={{padding:"5px 6px",color:muted,fontSize:11}}>{h.interval}</td>
-                        <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"monospace"}}>{h.fromTSH}"</td>
-                        <td style={{padding:"5px 6px",textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.diameter}"</td>
-                      </tr>
-                    ))}
+                    {dres.holes.map(h=>{
+                      // Unlike the melody chamber, this hole wasn't placed to hit a
+                      // target ratio — it's aligned to the melody tube's axial
+                      // position instead (ergonomics: one finger covers both), so
+                      // "Opens" (inherited from the melody hole it lines up with)
+                      // doesn't describe what this hole actually sounds on THIS
+                      // chamber's own bore/length. Its real pitch is worked out
+                      // straight from the same length-to-frequency physics as
+                      // tubeLen() itself, using this hole's own position and this
+                      // chamber's own bore.
+                      const rDrone = dres.bore / 2;
+                      const holeFreq = SPEED / (2 * (parseFloat(h.fromTSH) + 0.6 * rDrone));
+                      const holeNote = nearestNote(holeFreq, NOTES).name;
+                      return (
+                        <tr key={h.num} style={{borderBottom:"1px solid #251c08"}}>
+                          <td style={{padding:"5px 6px",color:"#f59e0b",fontWeight:700,fontFamily:"monospace"}}>H{h.num}</td>
+                          <td style={{padding:"5px 6px",color:muted,fontSize:11}}>{h.interval}</td>
+                          <td style={{padding:"5px 6px",textAlign:"right",fontWeight:700}}>{holeNote}</td>
+                          <td style={{padding:"5px 6px",textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{fmt(holeFreq,1)} Hz</td>
+                          <td style={{padding:"5px 6px",textAlign:"right",fontFamily:"monospace"}}>{h.fromTSH}"</td>
+                          <td style={{padding:"5px 6px",textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.diameter}"</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+                <div style={{fontSize:9.5,color:"#6a5a45",marginTop:6,lineHeight:1.5}}>
+                  "Opens" is which melody hole this one lines up with (same finger, both tubes); "Note"/"Freq" is this chamber's own computed pitch at that position — they won't generally match.
+                </div>
               </div>
               <div style={{fontSize:11,color:muted}}>
                 <strong style={{color:bone}}>Optional cover cap:</strong> carve or fit a removable wax/wood cap over this chamber's holes if you want the option to seal them off and use this chamber as a pure drone on demand.
@@ -6237,12 +8359,77 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
           </div>
         )}
 
+      <div style={card}>
+        <span style={lbl}>Bird / Totem Block <span style={{color:muted,textTransform:"none",fontWeight:400,fontSize:10}}>(decorative — shown in the 3D preview only)</span></span>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginTop:8}}>
+          {[
+            { key: "none", label: "None" },
+            { key: "default", label: "Default" },
+            { key: "dolphin", label: BIRD_BLOCKS.dolphin.label },
+            { key: "kokopelli", label: BIRD_BLOCKS.kokopelli.label },
+          ].map(({ key, label }) => (
+            <button key={key} onClick={()=>setBirdKey(key)} style={{
+              ...pill(birdKey===key), textAlign:"center", padding:"10px 12px", fontSize:14, fontWeight:800,
+            }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {birdKey === "default" && (
+          <div style={{marginTop:10,padding:"10px 12px",background:bg2,borderRadius:8,fontSize:11,color:muted,lineHeight:1.6}}>
+            The functional block bird from the wind-chamber model: it roofs the flue and covers the SAC exit opening, sitting flush on the tube with its edge exactly at the sound hole. Its chimney height is adjustable in the Flow Studio's nest controls.
+          </div>
+        )}
+        {birdKey !== "none" && birdKey !== "default" && (
+          <div style={{marginTop:10,padding:"10px 12px",background:bg2,borderRadius:8,fontSize:11,color:muted,lineHeight:1.6}}>
+            Sized proportionally to your bore diameter and shown resting above the sound hole, the way a real removable bird/block/fetish sits on a finished flute. Decorative only — it's not cut into the flute and isn't included in the drilling template, PDF, or G-code.
+            <div style={{marginTop:4,fontSize:10,color:"#6a5a45"}}>{BIRD_BLOCKS[birdKey].attribution}</div>
+            <div style={{marginTop:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Height above sound hole</span>
+                <span style={{color:muted}}>{birdHeight <= 0.02 ? "Flush" : `${birdHeight.toFixed(2)}" gap`}</span>
+              </div>
+              <input
+                type="range" min={0} max={1} step={0.01} value={birdHeight}
+                onChange={e=>setBirdHeight(parseFloat(e.target.value))}
+                style={{width:"100%"}}
+              />
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:9.5,color:"#6a5a45",marginTop:2}}>
+                <span>Flush on sound hole</span>
+                <span>Original (1" gap)</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
         <div style={{...card,overflowX:"auto"}}>
           <span style={lbl}>3D Preview <span style={{color:muted,textTransform:"none",fontWeight:400,fontSize:10}}>(true to scale — bore, length &amp; hole positions match your numbers below)</span></span>
-          <Flute3DViewer chambers={chambersForDiagram} curve={pipeMaterial === "antler" ? antlerShape : "straight"} pipeMaterial={pipeMaterial} holeShape={holeShape} birdKey={birdKey} droneBody={droneBody}
+          <Flute3DViewer chambers={chambersForDiagram} curve={pipeMaterial === "antler" ? antlerShape : "straight"} pipeMaterial={pipeMaterial} holeShape={holeShape} birdKey={birdKey} droneBody={droneBody} woodSpecies={woodSpecies}
             birdHeight={birdHeight} ambientIntensity={ambientIntensity} keyIntensity={keyIntensity} surfaceRoughness={surfaceRoughness} surfaceMetalness={surfaceMetalness}
-            showNestLabels={showNestLabels}/>
+            showNestLabels={dimVis.master} dimVis={dimVis}/>
+
+          {pipeMaterial !== "antler" && (
+            <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${bg2}`}}>
+              <span style={{...lbl,fontSize:12}}>Wood Species <span style={{color:muted,textTransform:"none",fontWeight:400,fontSize:10}}>(procedurally generated grain — no image files, works fully offline)</span></span>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(96px,1fr))",gap:6,marginTop:8}}>
+                {Object.entries(WOOD_SPECIES).map(([key,sp]) => (
+                  <button key={key} onClick={()=>setWoodSpecies(key)} style={{
+                    display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderRadius:7,cursor:"pointer",
+                    border:`1px solid ${woodSpecies===key?gold:bg2}`,
+                    background: woodSpecies===key ? "#2a2013" : "#1c1710",
+                  }}>
+                    <span style={{
+                      width:16,height:16,borderRadius:4,flexShrink:0,
+                      background: sp.base || "repeating-linear-gradient(45deg,#3a3a3a,#3a3a3a 3px,#555 3px,#555 6px)",
+                      border:"1px solid rgba(255,255,255,0.15)",
+                    }}/>
+                    <span style={{fontSize:10.5,color:woodSpecies===key?"#f0e0c0":muted,fontWeight:woodSpecies===key?700:400,textAlign:"left",lineHeight:1.2}}>{sp.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${bg2}`}}>
             <span style={{...lbl,fontSize:12}}>Lighting &amp; Shading</span>
@@ -6288,7 +8475,27 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
         <div style={card}>
           <span style={lbl}>Nest / Sound Hole Shape <span style={{color:muted,textTransform:"none",fontWeight:400,fontSize:10}}>(SAC exit ramp, flue channel, TSH, and the sound-hole splitting edge)</span></span>
 
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"10px 18px",marginTop:10}}>
+          <div style={{marginTop:8,fontSize:10.5,color:muted,lineHeight:1.45}}>
+            {nestName
+              ? <>Using your latest saved nest: <span style={{color:"#7dd3fc",fontWeight:700}}>"{nestName}"</span>. Open the advanced sliders below to fine-tune it.</>
+              : anyNestOverride
+                ? <>Using <span style={{color:"#7dd3fc",fontWeight:700}}>custom overrides</span> from the advanced sliders below.</>
+                : <>Using <span style={{fontWeight:700}}>auto dimensions</span> (Flutopedia formulas for this bore). Save a nest in the Library and it loads here automatically.</>}
+          </div>
+
+          <button onClick={()=>setNestAdvOpen(o=>!o)} style={{
+            marginTop:10, width:"100%", textAlign:"left", cursor:"pointer",
+            background:bg2, border:`1px solid ${nestAdvOpen ? "#7dd3fc44" : bg2}`, borderRadius:8,
+            color:bone, fontSize:11.5, fontWeight:800, padding:"8px 12px",
+            display:"flex", alignItems:"center", gap:8,
+          }}>
+            <span style={{fontSize:12,color:"#7dd3fc"}}>{nestAdvOpen ? "\u25BE" : "\u25B8"}</span>
+            Advanced nest geometry
+            <span style={{color:muted,fontWeight:400,fontSize:10}}>— every Flow Studio slider (12), for hand-tuning the exact nest the 3D preview, Flow Studio and the CNC G-code all use</span>
+          </button>
+
+          {nestAdvOpen && (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"10px 18px",marginTop:10,padding:"10px 12px",background:"#120b03",border:`1px solid ${bg2}`,borderRadius:8}}>
             <div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
                 <span>SAC exit ramp angle</span>
@@ -6333,6 +8540,142 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
               <input type="range" min={0} max={55} step={1} value={nestFippleAngleDeg}
                 onChange={e=>setNestFippleAngleDeg(parseFloat(e.target.value))} style={{width:"100%"}}/>
             </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Flute wall thickness</span>
+                <span style={{color:muted}}>{effWallThicknessIn.toFixed(3)}"{nestWallThicknessIn==null && <span style={{color:"#6a5a45"}}> (auto)</span>}</span>
+              </div>
+              <input type="range" min={0.04} max={0.5} step={0.005} value={effWallThicknessIn}
+                onChange={e=>setNestWallThicknessIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              <div style={{fontSize:9.5,color:muted,marginTop:2,lineHeight:1.35}}>Bore wall of the whole body — drives the outer diameter, CNC blank thickness &amp; hole depths (Prairie: ⅛–³⁄₁₆″ typical).</div>
+              {nestWallThicknessIn!=null && (
+                <button onClick={()=>setNestWallThicknessIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Ramp curve (scoop)</span>
+                <span style={{color:muted}}>{Math.round(effRampCurveAdv*100)}%{nestRampCurve==null && <span style={{color:"#6a5a45"}}> (straight)</span>}</span>
+              </div>
+              <input type="range" min={0} max={100} step={5} value={Math.round(effRampCurveAdv*100)}
+                onChange={e=>setNestRampCurve(parseFloat(e.target.value)/100)} style={{width:"100%"}}/>
+              {nestRampCurve!=null && (
+                <button onClick={()=>setNestRampCurve(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>TSH / flue width</span>
+                <span style={{color:muted}}>{effTshWidthAdv.toFixed(3)}"{nestTshWidthIn==null && <span style={{color:"#6a5a45"}}> (auto)</span>}</span>
+              </div>
+              <input type="range" min={0.15} max={0.65} step={0.005} value={effTshWidthAdv}
+                onChange={e=>setNestTshWidthIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {nestTshWidthIn!=null && (
+                <button onClick={()=>setNestTshWidthIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Flue length</span>
+                <span style={{color:muted}}>{effFlueLenAdv.toFixed(3)}"{nestFlueLengthIn==null && <span style={{color:"#6a5a45"}}> (auto: 2× width)</span>}</span>
+              </div>
+              <input type="range" min={0.2} max={1.8} step={0.01} value={effFlueLenAdv}
+                onChange={e=>setNestFlueLengthIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {nestFlueLengthIn!=null && (
+                <button onClick={()=>setNestFlueLengthIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Tip height (above flue floor)</span>
+                <span style={{color:muted}}>{effTipHeightAdv.toFixed(4)}"{nestTipHeightIn==null && <span style={{color:"#6a5a45"}}> (auto: 1/128")</span>}</span>
+              </div>
+              <input type="range" min={0} max={0.04} step={0.001} value={effTipHeightAdv}
+                onChange={e=>setNestTipHeightIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {nestTipHeightIn!=null && (
+                <button onClick={()=>setNestTipHeightIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Tip flat</span>
+                <span style={{color:muted}}>{effTipFlatAdv.toFixed(3)}"{nestTipFlatIn==null && <span style={{color:"#6a5a45"}}> (auto: 0.010")</span>}</span>
+              </div>
+              <input type="range" min={0} max={0.04} step={0.001} value={effTipFlatAdv}
+                onChange={e=>setNestTipFlatIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {nestTipFlatIn!=null && (
+                <button onClick={()=>setNestTipFlatIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Backset (0–D/3)</span>
+                <span style={{color:muted}}>{effBacksetAdv.toFixed(3)}"{nestBacksetIn==null && <span style={{color:"#6a5a45"}}> (none)</span>}</span>
+              </div>
+              <input type="range" min={0} max={0.32} step={0.005} value={effBacksetAdv}
+                onChange={e=>setNestBacksetIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              <div style={{fontSize:9,color:muted,marginTop:2,lineHeight:1.3}}>Nest-insert CNC note: backset is an undercut there — cut by hand through the window.</div>
+              {nestBacksetIn!=null && (
+                <button onClick={()=>setNestBacksetIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Bird chimney</span>
+                <span style={{color:muted}}>{effChimneyAdv.toFixed(3)}"{nestChimneyIn==null && <span style={{color:"#6a5a45"}}> (flat bird)</span>}</span>
+              </div>
+              <input type="range" min={0} max={0.5} step={0.005} value={effChimneyAdv}
+                onChange={e=>setNestChimneyIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {nestChimneyIn!=null && (
+                <button onClick={()=>setNestChimneyIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+          </div>
+          )}
+
+          <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${bg2}`}}>
+            <div style={{fontSize:11,fontWeight:800,color:bone,marginBottom:2}}>
+              Blow / Breath Hole <span style={{color:muted,fontWeight:400}}>(the mouthpiece passage — Blow Hole–Diameter × Blow Hole–Length)</span>
+            </div>
+            <div style={{fontSize:10.5,color:"#7dd3fc",marginBottom:8,lineHeight:1.5}}>
+              💡 Recommended for <strong>{noteKey}</strong> · {bore}" bore: <strong>{CRAFTING_DIMS.fractionLabel(bhRec.dia)} × {bhRec.len}"</strong>
+              {Math.abs(bore - 0.75) < 0.01 && /^G4?$/.test(String(noteKey)) ? " — Russ Wolf's plan for exactly this flute (5/16\u2033 × 2\u00be\u2033, mid-range G minor, \u00be\u2033 bore)." : " — from the Flute Crafting Dimensions data (common range 5/16\u2033–3/8\u2033; scaled from Russ Wolf's 5/16\u2033 × 2\u00be\u2033 G4 anchor)."}
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:10.5,color:muted,fontWeight:700}}>Diameter:</span>
+              <button onClick={()=>setBreathHoleDiaIn(null)}
+                style={{...pill(breathHoleDiaIn==null),padding:"5px 10px",fontSize:11.5}}>
+                Auto ({CRAFTING_DIMS.fractionLabel(bhRec.dia)})
+              </button>
+              {CRAFTING_DIMS.breathHoleDias.map(v => (
+                <button key={v} onClick={()=>setBreathHoleDiaIn(v)}
+                  style={{...pill(breathHoleDiaIn===v),padding:"5px 10px",fontSize:11.5}}>
+                  {CRAFTING_DIMS.fractionLabel(v)}
+                </button>
+              ))}
+            </div>
+            <div style={{maxWidth:340}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:bone,marginBottom:4}}>
+                <span>Blow Hole–Length</span>
+                <span style={{color:muted}}>{effBreathHoleLenIn.toFixed(3)}"{breathHoleLenIn==null && <span style={{color:"#6a5a45"}}> (auto)</span>}</span>
+              </div>
+              <input type="range" min={1.25} max={4} step={0.125} value={effBreathHoleLenIn}
+                onChange={e=>setBreathHoleLenIn(parseFloat(e.target.value))} style={{width:"100%"}}/>
+              {breathHoleLenIn!=null && (
+                <button onClick={()=>setBreathHoleLenIn(null)} style={{marginTop:4,background:"none",border:"none",color:"#7dd3fc",fontSize:10,cursor:"pointer",padding:0,textDecoration:"underline"}}>Reset to auto</button>
+              )}
+            </div>
+            <div style={{fontSize:9.5,color:muted,marginTop:6,lineHeight:1.4}}>
+              The size set here is the one the 3D preview bores, the CNC G-code cuts through the mouthpiece, the Flow Studio feeds its supply model with, and the Library saves.
+            </div>
           </div>
 
           <div style={{marginTop:10,fontSize:10.5,color:muted,lineHeight:1.5}}>
@@ -6340,11 +8683,14 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
           </div>
 
           <label style={{display:"flex",alignItems:"center",gap:6,marginTop:10,fontSize:11,color:bone,cursor:"pointer"}}>
-            <input type="checkbox" checked={showNestLabels} onChange={e=>setShowNestLabels(e.target.checked)}/>
+            <input type="checkbox" checked={dimVis.master} onChange={e=>{ const v={ ...dimVis, master: e.target.checked }; setDimVis(v); saveNestDimVis(v); }}/>
             Show dimension labels in the 3D preview
           </label>
+          {dimVis.master && (
+            <NestDimTogglePanel dimVis={dimVis} setDimVis={setDimVis}/>
+          )}
 
-          {(nestRampAngleDeg!=null || nestFlueDepthIn!=null || nestTshLengthIn!=null || nestFippleAngleDeg!==0 || nestName) && (
+          {(anyNestOverride || nestName) && (
             <button onClick={clearNest} style={{marginTop:8,background:"none",border:`1px solid ${bg2}`,borderRadius:6,color:muted,fontSize:10.5,padding:"4px 10px",cursor:"pointer"}}>
               Reset all to auto
             </button>
@@ -6420,24 +8766,35 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
             All distances from TSH. Drill starting size, check pitch, enlarge with round file — repeat.
           </div>
           <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:420}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:560}}>
               <thead>
                 <tr style={{borderBottom:"2px solid #5a3a18"}}>
-                  {["Hole","Opens","From TSH","From Foot","Start Ø"].map(h=>(
+                  {["Hole","Opens","Note","Freq","From TSH","From Foot","Start Ø"].map(h=>(
                     <th key={h} style={{textAlign:h==="Hole"||h==="Opens"?"left":"right",padding:"6px 8px",color:amber,fontWeight:700}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {holes.map(h=>(
-                  <tr key={h.num} style={{borderBottom:"1px solid #2a1a08"}}>
-                    <td style={{padding:"8px 8px",color:gold,fontWeight:700,fontFamily:"monospace"}}>H{h.num}</td>
-                    <td style={{color:muted,fontSize:12}}>{h.interval}</td>
-                    <td style={{textAlign:"right",fontWeight:600,fontFamily:"monospace"}}>{h.fromTSH}"</td>
-                    <td style={{textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.fromFoot}"</td>
-                    <td style={{textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.diameter}"</td>
-                  </tr>
-                ))}
+                {holes.map(h=>{
+                  // Same ratio → frequency → nearest-note path already used by the
+                  // Progressive Tuning Assistant and the PDF fingering chart — the
+                  // hole objects here don't carry ratio themselves, so it's looked
+                  // up from the same SCALE_CONFIGS entry its interval name came from.
+                  const ratio = SCALE_CONFIGS[holeCount]?.holes.find(sc => sc.num === h.num)?.ratio;
+                  const expFreq = ratio ? rootFreq * ratio : null;
+                  const expNote = expFreq ? nearestNote(expFreq, NOTES).name : "--";
+                  return (
+                    <tr key={h.num} style={{borderBottom:"1px solid #2a1a08"}}>
+                      <td style={{padding:"8px 8px",color:gold,fontWeight:700,fontFamily:"monospace"}}>H{h.num}</td>
+                      <td style={{color:muted,fontSize:12}}>{h.interval}</td>
+                      <td style={{textAlign:"right",fontWeight:700}}>{expNote}</td>
+                      <td style={{textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{expFreq ? fmt(expFreq,1) : "--"} Hz</td>
+                      <td style={{textAlign:"right",fontWeight:600,fontFamily:"monospace"}}>{h.fromTSH}"</td>
+                      <td style={{textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.fromFoot}"</td>
+                      <td style={{textAlign:"right",color:"#c4a97d",fontFamily:"monospace"}}>{h.diameter}"</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -6447,7 +8804,7 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
           {[
             ["Finger Holes",`Start: ${holeSt}" (${fmt(parseFloat(holeSt)*25.4,1)}mm)`,`Max: ${holeMx}" (${fmt(parseFloat(holeMx)*25.4,1)}mm)`],
             ["Sound Hole (window)",`Width: ${shW}" (across bore)`,`Length: ${shL}" (along bore)`],
-            ["SAC & Mouthpiece",`SAC: ${fmt(sacLen)}"`,`Mouthpiece end: +~2" (adjust to fit)`],
+            ["SAC & Mouthpiece",`SAC: ${fmt(sacLen)}"`,`Mouthpiece margin: +${fmt(mouthpieceMargin)}"${mouthpieceMarginIn==null ? " (default)" : " (custom)"}`],
           ].map(([title,l1,l2])=>(
             <div key={title} style={{...card,marginBottom:0}}>
               <div style={{fontSize:9,textTransform:"uppercase",letterSpacing:"0.07em",color:amber,fontWeight:700,marginBottom:7}}>{title}</div>
@@ -6467,7 +8824,7 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
 
         <div style={{...card,background:"#2a1f0f",borderColor:"#8a6030"}}>
           <div style={{fontSize:11,color:muted,textAlign:"center",marginBottom:8}}>
-            Complete workshop packet — cover sheet, cutting guide, drill guide, tuning guide, and sanding &amp; finishing checklists
+            Complete workshop packet — cover sheet, cutting guide, drill guide, tuning guide, sanding &amp; finishing checklists, and a fingering chart
           </div>
           <button
             onClick={()=>exportPDF({bore,L,holes,holeCount,rootNote,totalLen,sacLen,handSize,antlerShape,pipeMaterial,
@@ -6497,6 +8854,8 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
           )}
         </div>
 
+        <CADExportPanel card={card} lbl={lbl} muted={muted} bone={bone} bg2={bg2} border={border} gold={gold}/>
+
         <div style={{...card,textAlign:"center"}}>
           <div style={{fontSize:11,color:muted,marginBottom:10}}>
             Save this exact build — bore, key, material, drones, and all — to reopen anytime from the Library tab.
@@ -6507,6 +8866,7 @@ function FlutePage({ loadConfig, onConfigLoaded }) {
               bore, mode, noteKey, rawLen, holeCount, handSize, antlerShape, pipeMaterial,
               holeShape, fluteStyle, drones, droneBody, a4, ergoOverride,
               nestName, nestRampAngleDeg, nestFlueDepthIn, nestTshLengthIn, nestFippleAngleDeg, nestRampCurve, nestTshWidthIn, nestWallThicknessIn, nestBacksetIn, nestTipFlatIn, nestChimneyIn, nestTipHeightIn, nestFlueLengthIn,
+              breathHoleDiaIn, breathHoleLenIn, sacLenIn, mouthpieceMarginIn,
               summary: { rootNote: rootNote.name, holeCount, bore, material: pipeMaterial, isDrone: fluteStyle==="drone" },
             })}
             pill={pill} bg2={bg2} border={border} bone={bone} muted={muted} gold={gold}
@@ -6580,6 +8940,30 @@ function dudukTubeLen(freq, r, reedExt) {
   // Closed-closed pipe approximation with reed acoustic extension subtracted from
   // the physical bore length (the reed itself supplies part of the resonant column)
   return (SPEED / (2 * freq)) - reedExt - (0.3 * r);
+}
+
+// Duduk equivalent of recommendedBores() — same idea (find the bore that
+// lands closest to a comfortable tube length, always return a real answer
+// rather than blocking extreme keys), but the duduk's bore is a continuous
+// per-style range rather than the flute's fixed BORES list, and tube length
+// also depends on the reed's acoustic extension. Since dudukTubeLen is
+// linear in r, the ideal bore for a given target length has a direct
+// algebraic solution — solve for it, then clamp to the style's own range.
+const DUDUK_SWEET_MIN = 8, DUDUK_SWEET_MAX = 16, DUDUK_HARD_MIN = 4, DUDUK_HARD_MAX = 22;
+function recommendedDudukBore(freq, boreRange, reedExt) {
+  const [bMin, bMax] = boreRange;
+  const mid = (DUDUK_SWEET_MIN + DUDUK_SWEET_MAX) / 2;
+  // dudukTubeLen(freq, r, reedExt) = SPEED/(2*freq) - reedExt - 0.3*r = mid  =>  r = (...) / 0.3
+  const rIdeal = ((SPEED / (2 * freq)) - reedExt - mid) / 0.3;
+  const bore = Math.max(bMin, Math.min(bMax, 2 * rIdeal));
+  const tl = dudukTubeLen(freq, bore / 2, reedExt);
+  const inSweetSpot = tl >= DUDUK_SWEET_MIN && tl <= DUDUK_SWEET_MAX;
+  const inHardRange = tl >= DUDUK_HARD_MIN && tl <= DUDUK_HARD_MAX;
+  const extreme = !inHardRange;
+  return {
+    bore, tubeLen: tl, reachesSweetSpot: inSweetSpot,
+    extreme, extremeTooLong: extreme && tl > DUDUK_HARD_MAX, extremeTooShort: extreme && tl < DUDUK_HARD_MIN,
+  };
 }
 
 function dudukHoleDiam(bore, isThumb) {
@@ -6670,7 +9054,7 @@ function DudukTemplate({ L, holes, bore, reedLen, reedDiam, rootNote }) {
 // ═══════════════════════════════════════════════════════════════
 //  DUDUK PDF EXPORT
 // ═══════════════════════════════════════════════════════════════
-function exportDudukPDF({ style, bore, L, holes, rootNote, reedLen, reedDiam, reedExt, totalLen, a4 }) {
+function exportDudukPDF({ style, bore, L, holes, rootNote, reedLen, reedDiam, reedExt, totalLen, a4, NOTES }) {
   const doc = new jsPDF({ unit: "in", format: "letter" });
 
   doc.setFont("helvetica","bold"); doc.setFontSize(18);
@@ -6769,8 +9153,92 @@ function exportDudukPDF({ style, bore, L, holes, rootNote, reedLen, reedDiam, re
     doc.text("Measure this box with a ruler before drilling.", MARGIN, PAGE_H - MARGIN + 0.12);
   }
 
+  // Fingering chart — a keep-this-card reference for the finished
+  // instrument, added last for the same reason as the flute packet.
+  drawDudukFingeringChartPage(doc, { rootNote, a4, NOTES });
+
   const safeName = rootNote.name.replace(/[#\/]/g,"_");
   doc.save(`duduk_${style}_${safeName}_${bore}bore.pdf`);
+}
+
+// ── PAGE: Fingering Chart (Duduk) ───────────────────────────────
+// Same "one page, every note" reference as the flute's fingering chart.
+// The 7 front holes follow the same cumulative mouth-ward-first opening
+// rule as the flute (drawn straight from DUDUK_HOLES_8's own ratios); the
+// thumbhole is shown separately rather than folded into that ladder,
+// since it isn't part of it — its ratio (a 2nd) doesn't fit the front-hole
+// sequence, and how it combines with partly-open front holes in practice
+// is instrument-specific, not something this app models.
+function drawDudukFingeringChartPage(doc, { rootNote, a4, NOTES }) {
+  doc.addPage("letter", "portrait");
+  pageHeader(doc, "Fingering Chart", "Cover = root note. Each note opens one more front hole, reed end toward foot.");
+
+  const rootFreq = NOTES.find(n => n.name === rootNote.name)?.freq;
+  const front = DUDUK_HOLES_8.filter(h => !h.thumb).sort((a,b) => b.num - a.num);
+  const thumb = DUDUK_HOLES_8.find(h => h.thumb);
+
+  const notes = [
+    { note: rootNote.name, sub: "all closed", freq: rootFreq, openCount: 0 },
+    ...front.map((h, i) => ({
+      sub: h.interval,
+      note: rootFreq ? nearestNote(rootFreq * h.ratio, NOTES).name : "--",
+      freq: rootFreq ? rootFreq * h.ratio : null,
+      openCount: i + 1,
+    })),
+  ];
+
+  const left = 0.9, right = 7.6, top = 1.75;
+  const colW = (right - left) / notes.length;
+  const holeGap = 0.34, holeRad = 0.09;
+  const stackTop = top + 0.55;
+
+  doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(120,120,120);
+  front.forEach((h, i) => doc.text(`H${h.num}`, left - 0.28, stackTop + i*holeGap + 0.03, {align:"right"}));
+  doc.setTextColor(0,0,0);
+
+  notes.forEach((n, ci) => {
+    const cx = left + colW*ci + colW/2;
+
+    doc.setFont("helvetica","bold"); doc.setFontSize(11.5);
+    doc.text(n.note, cx, top, {align:"center"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(120,120,120);
+    doc.text(n.sub, cx, top + 0.16, {align:"center"});
+    doc.setTextColor(0,0,0);
+
+    front.forEach((h, ri) => {
+      const cy = stackTop + ri*holeGap;
+      const isOpen = ri < n.openCount;
+      doc.setDrawColor(20,20,20); doc.setLineWidth(0.014);
+      if (isOpen) {
+        doc.circle(cx, cy, holeRad);
+      } else {
+        doc.setFillColor(20,20,20);
+        doc.circle(cx, cy, holeRad, "F");
+      }
+    });
+
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.5); doc.setTextColor(120,120,120);
+    doc.text(n.freq ? `${fmt(n.freq,0)} Hz` : "--", cx, stackTop + front.length*holeGap + 0.22, {align:"center"});
+    doc.setTextColor(0,0,0);
+  });
+
+  let y = stackTop + front.length*holeGap + 0.5;
+  if (thumb) {
+    doc.setDrawColor(200,150,50); doc.setLineWidth(0.01); doc.line(0.8, y, 7.7, y); y += 0.3;
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text("Thumbhole (back of tube)", 0.9, y);
+    const thumbNote = rootFreq ? nearestNote(rootFreq * thumb.ratio, NOTES).name : "--";
+    doc.setFont("helvetica","normal");
+    doc.text(`with all front holes closed, gives ${thumbNote}  (${thumb.interval} above root)`, 0.9, y + 0.22);
+    y += 0.55;
+  }
+
+  doc.setDrawColor(200,150,50); doc.setLineWidth(0.015); doc.line(0.8, y, 7.7, y); y += 0.25;
+  doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(90,90,90);
+  doc.text("Filled circle = hole covered. Open circle = hole open. Shown reed end (top) to foot end (bottom).", 0.8, y, {maxWidth: 6.9}); y += 0.2;
+  doc.text("Combining the thumbhole with partly-open front holes gives additional chromatic notes in practice,", 0.8, y, {maxWidth: 6.9}); y += 0.2;
+  doc.text("but the exact result is instrument-specific \u2014 find these by ear.", 0.8, y, {maxWidth: 6.9});
+  doc.setTextColor(0,0,0);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6839,10 +9307,14 @@ function DudukPage({ loadConfig, onConfigLoaded }) {
   const reedDiam = bore * 0.62; // reed shaft slightly narrower than bore, seated snugly
   const totalLen = fmt(L + reedLen);
 
-  const validNotes = NOTES.filter(n => {
-    const tl = dudukTubeLen(n.freq, r, reedExt);
-    return tl >= 4 && tl <= 22;
-  });
+  // Recommended bore diameter for the currently selected key, within this
+  // style's own bore range — computed independently of whatever bore is
+  // currently dialed in, same pattern as the melody flute's boreRec.
+  const dudukBoreRec = (() => {
+    const noteFreq = NOTES.find(n => n.name === noteKey)?.freq;
+    if (!noteFreq) return null;
+    return recommendedDudukBore(noteFreq, cfg.boreRange, reedExt);
+  })();
 
   const showResults = L > 3;
 
@@ -6919,23 +9391,35 @@ function DudukPage({ loadConfig, onConfigLoaded }) {
         </div>
         {mode==="key" ? (<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7,flexWrap:"wrap",gap:6}}>
-            <div style={{fontSize:11,color:muted}}>Root note (all holes closed) — dimmed notes are out of range for this bore/reed combo</div>
+            <div style={{fontSize:11,color:muted}}>Root note (all holes closed) — every key is selectable; see the recommended bore below</div>
             <button onClick={()=>setPlaySamples(p=>!p)}
               style={{...pill(playSamples),padding:"4px 10px",fontSize:11}}>
               {playSamples ? "🔊" : "🔇"} Play note on select
             </button>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-            {NOTES.map(n=>{
-              const ok = !!validNotes.find(v=>v.name===n.name);
-              return (
-                <button key={n.name} onClick={()=>{ if(!ok) return; setNoteKey(n.name); if(playSamples) playNoteSample(n.name); }}
-                  style={{...pill(noteKey===n.name),opacity:ok?1:0.28,cursor:ok?"pointer":"not-allowed",padding:"5px 10px",fontSize:12}}>
-                  {n.name}
-                </button>
-              );
-            })}
-          </div>
+          <NoteKeyPicker notes={NOTES} value={noteKey} onSelect={setNoteKey} pill={pill} playSamples={playSamples}
+            isOk={() => true} />
+          <SoundCredits/>
+          {dudukBoreRec && (
+            <div style={{marginTop:9,fontSize:12,color:Math.abs(bore-dudukBoreRec.bore)<0.005?"#7acc44":"#d4a05a",lineHeight:1.5}}>
+              {Math.abs(bore-dudukBoreRec.bore)<0.005
+                ? (dudukBoreRec.reachesSweetSpot
+                    ? `✓ Current bore (${fmt(dudukBoreRec.bore,2)}") is the recommended size for ${noteKey}.`
+                    : dudukBoreRec.extremeTooLong
+                      ? `Current bore (${fmt(dudukBoreRec.bore,2)}") is the best fit for ${noteKey} — but even so this key runs to a ${fmt(dudukBoreRec.tubeLen,1)}" tube, longer than typical for a duduk (this style's usual comfortable range is ${DUDUK_SWEET_MIN}"–${DUDUK_SWEET_MAX}").`
+                      : dudukBoreRec.extremeTooShort
+                        ? `Current bore (${fmt(dudukBoreRec.bore,2)}") is the best fit for ${noteKey} — but this key still lands at only a ${fmt(dudukBoreRec.tubeLen,1)}" tube, shorter than comfortable for holes and reed seat to fit.`
+                        : `✓ Current bore (${fmt(dudukBoreRec.bore,2)}") is the best available fit for ${noteKey} within this style's typical range.`)
+                : <>💡 Recommended bore for <strong>{noteKey}</strong> is <strong>{fmt(dudukBoreRec.bore,2)}"</strong> ({fmt(dudukBoreRec.bore*25.4,1)}mm)
+                    {!dudukBoreRec.reachesSweetSpot && (dudukBoreRec.extremeTooLong
+                      ? <> — heads up, this key still runs to a {fmt(dudukBoreRec.tubeLen,1)}" tube, longer than typical for a duduk.</>
+                      : dudukBoreRec.extremeTooShort
+                        ? <> — heads up, this key runs to just a {fmt(dudukBoreRec.tubeLen,1)}" tube, tight for reed seat and hole spacing.</>
+                        : null)}
+                    {" "}<button onClick={()=>setBore(dudukBoreRec.bore)} style={{...pill(false,"#7acc44"),padding:"2px 9px",fontSize:11,marginLeft:4}}>Set bore</button>
+                  </>}
+            </div>
+          )}
         </>) : (<>
           <div style={{fontSize:11,color:muted,marginBottom:7}}>Enter body length — bottom of reed seat to open foot, in inches</div>
           <input type="number" step="0.25" min="4" max="22" value={rawLen}
@@ -7033,7 +9517,7 @@ function DudukPage({ loadConfig, onConfigLoaded }) {
             Complete build specification — all measurements, hole positions, and reed notes
           </div>
           <button
-            onClick={()=>exportDudukPDF({style,bore,L,holes,rootNote,reedLen,reedDiam,reedExt,totalLen,a4})}
+            onClick={()=>exportDudukPDF({style,bore,L,holes,rootNote,reedLen,reedDiam,reedExt,totalLen,a4,NOTES})}
             style={{width:"100%",padding:"16px",background:gold,color:"#1a0e00",border:"none",borderRadius:8,fontSize:17,fontWeight:800,cursor:"pointer",letterSpacing:"-0.3px"}}>
             📄 Download Build Sheet PDF
           </button>
@@ -7513,7 +9997,7 @@ function keyLightPosition(center, distance, azimuthDeg, elevationDeg) {
   };
 }
 
-function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlocks, stockFlips = [], flipOverride = null, showRapids, showToolpath = true, materialColor, ambientIntensity, keyIntensity, keyAzimuth, keyElevation }) {
+function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlocks, stockFlips = [], flipOverride = null, showRapids, showToolpath = true, materialColor, woodSpecies = "none", ambientIntensity, keyIntensity, keyAzimuth, keyElevation, active = true }) {
   const mountRef = useRef(null);
   const sceneRef = useRef({});
   const bakedProgressRef = useRef(0);
@@ -7523,6 +10007,29 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
   const [carveError, setCarveError] = useState(null);
 
   const motionMoves = useMemo(() => getMotionMoves(parsed.segments), [parsed]);
+  // Each blank's G-code Z is zeroed on ITS OWN top face — a real machining
+  // necessity, since each blank gets set up and zeroed separately on the
+  // table. But that means a THINNER blank's declared Z values sit "higher"
+  // than a taller blank's by exactly the thickness difference, even though
+  // both physically rest on the SAME table. Rendered literally, the thinner
+  // blank floats above the surface instead of sitting flush on it. This
+  // computes, per blank, how far to shift it DOWN so every blank's bottom
+  // lands on one shared ground plane — used for the stock mesh, the
+  // toolpath lines, and the tool cursor alike, so all three stay consistent.
+  const blockShifts = useMemo(() => {
+    if (!stockBlocks || !stockBlocks.length) return [];
+    const groundLevel = Math.min(...stockBlocks.map(b => b.offset.z));
+    return stockBlocks.map(b => ({ y0: b.offset.y, y1: b.offset.y + b.size.y, shift: groundLevel - b.offset.z, label: b.label }));
+  }, [stockBlocks]);
+  const shiftForY = useCallback((y) => {
+    if (!blockShifts.length) return 0;
+    for (const b of blockShifts) if (y >= b.y0 - 0.02 && y <= b.y1 + 0.02) return b.shift;
+    // Fallback for a point slightly outside any block's declared Y range
+    // (a rapid overshoot, say) — use whichever blank's Y range it's nearest.
+    let best = blockShifts[0], bestD = Infinity;
+    for (const b of blockShifts) { const d = Math.min(Math.abs(y - b.y0), Math.abs(y - b.y1)); if (d < bestD) { bestD = d; best = b; } }
+    return best.shift;
+  }, [blockShifts]);
   // Where each blank gets turned over, in move numbers. A `preflipped` marker
   // means the blank is ALREADY flipped when the program starts (a standalone
   // nest program), so there is nothing to animate — it just begins uncut.
@@ -7680,7 +10187,13 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
       const path = move.isArc && move.points ? move.points : [move.from, move.to];
       const bucket = move.type === "rapid" ? rapidPoints : feedPoints;
       for (let i = 0; i < path.length - 1; i++) {
-        bucket.push(toScene(path[i]), toScene(path[i + 1]));
+        // Shift each point to match its blank's ground-flush rendering —
+        // see blockShifts above. Without this the lines float at each
+        // blank's own (unshifted) Z while the mesh they trace over sits
+        // correctly on the table, and the two visibly part ways.
+        const a = toScene(path[i]), b = toScene(path[i + 1]);
+        a.y += shiftForY(path[i].y); b.y += shiftForY(path[i + 1].y);
+        bucket.push(a, b);
       }
     });
     const makeLines = (points, color, opacity) => {
@@ -7700,8 +10213,17 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
     // Ease each blank toward its flip target rather than snapping, so the
     // turn-over actually reads as the board being turned over by hand.
     let lastT = performance.now();
+    // Pages are kept mounted-but-hidden (display:none) when you switch away,
+    // not unmounted — a bare RAF render loop would keep calling the GPU
+    // every frame forever for a viewer nobody can see. `activeRef` lets the
+    // loop skip the actual render (and the per-frame math above it) while
+    // hidden, without tearing down the scene/renderer — it picks back up
+    // instantly, with zero rebuild, the moment the page is shown again.
+    const activeRef = sceneRef.current.__activeRef || { current: true };
+    sceneRef.current.__activeRef = activeRef;
     const animate = () => {
       rafId = requestAnimationFrame(animate);
+      if (!activeRef.current) { lastT = performance.now(); return; } // stay caught up on dt so flips don't lurch on return
       const now = performance.now(), dt = Math.min(0.25, (now - lastT) / 1000);
       lastT = now;
       (sceneRef.current.hms || []).forEach(hm => {
@@ -7712,6 +10234,11 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
         // the flip has to take ~1s of wall clock, not ~1s of good frames.
         hm.blankGroup.rotation.x = Math.abs(d) < 1e-3 ? hm.rotTarget : cur + d * (1 - Math.exp(-dt * 4.5));
       });
+      // Spin the bit around its own axis — a static cutter sitting in the
+      // wood reads as a decal, not a tool. A few rotations per second is
+      // plenty to sell "cutting" without strobing into an unreadable blur
+      // at typical frame rates (real spindle RPM is far too fast to render).
+      if (sceneRef.current.toolGroup) sceneRef.current.toolGroup.rotation.y += dt * 46;
       controls.update();
       renderer.render(scene, camera);
     };
@@ -7808,13 +10335,22 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
             idx[q++] = a; idx[q++] = c2; idx[q++] = b;
             idx[q++] = b; idx[q++] = c2; idx[q++] = d2;
           }
+          const uv = new Float32Array(nx * ny * 2);
+          const TILE_IN = 3;   // one texture tile ≈ 3 real inches, so grain scale reads consistently regardless of blank size
+          for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+            const k2 = (j * nx + i) * 2;
+            uv[k2] = (i * cellX) / TILE_IN; uv[k2 + 1] = (j * cellY) / TILE_IN;
+          }
           const geo = new THREE.BufferGeometry();
           geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+          geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
           geo.setIndex(new THREE.BufferAttribute(idx, 1));
           geo.computeVertexNormals();
-          const surf = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
-            color: materialColor, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide,
-          }));
+          const woodTex = woodSpecies && woodSpecies !== "none" ? getWoodTexture(woodSpecies) : null;
+          const surf = new THREE.Mesh(geo, new THREE.MeshStandardMaterial(woodTex
+            ? { map: woodTex, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide }
+            : { color: materialColor, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide }));
+          surf.name = `${blk.label}-top-face`;
 
           // ── The blank has TWO faces ─────────────────────────────────
           // A single heightmap can only describe the surface pointing up.
@@ -7832,27 +10368,51 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
           }
           const geoD = new THREE.BufferGeometry();
           geoD.setAttribute("position", new THREE.BufferAttribute(posD, 3));
+          geoD.setAttribute("uv", new THREE.BufferAttribute(uv, 2));   // same grid layout as the top surface, so the same UVs apply
           geoD.setIndex(new THREE.BufferAttribute(idx.slice(), 1));
           geoD.computeVertexNormals();
-          const surfDown = new THREE.Mesh(geoD, new THREE.MeshStandardMaterial({
-            color: materialColor, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide,
-          }));
+          const surfDown = new THREE.Mesh(geoD, new THREE.MeshStandardMaterial(woodTex
+            ? { map: woodTex, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide }
+            : { color: materialColor, roughness: 0.8, metalness: 0.04, side: THREE.DoubleSide }));
+          surfDown.name = `${blk.label}-bottom-face`;
 
           // Sides + bottom shell; the box's TOP face is invisible — the
           // heightmap surface IS the top. (BoxGeometry face-group order:
           // +x, -x, +y, -y, +z, -z — index 2 is the top in scene coords.)
           const shellGeo = new THREE.BoxGeometry(size.x, size.z, size.y);
-          const sideMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(materialColor).multiplyScalar(0.82), roughness: 0.85 });
+          // BoxGeometry's own UVs are 0–1 PER FACE regardless of that face's
+          // real size, unlike the heightmap surfaces above (which have the
+          // physical scale baked directly into their UV values) — so the
+          // side texture needs its OWN cloned instance with a real .repeat,
+          // sized off the blank's actual length (the dimension that matters
+          // most; the shell is far longer than it is tall or wide).
+          const sideTex = woodSpecies && woodSpecies !== "none" ? woodTextureFor(woodSpecies, size.x, size.z, TILE_IN) : null;
+          const sideMat = new THREE.MeshStandardMaterial(sideTex
+            ? { map: sideTex, roughness: 0.85 }
+            : { color: new THREE.Color(materialColor).multiplyScalar(0.82), roughness: 0.85 });
           const hiddenTop = new THREE.MeshBasicMaterial({ visible: false });
           const shell = new THREE.Mesh(shellGeo, [sideMat, sideMat, hiddenTop, hiddenTop, sideMat, sideMat]);
+          shell.name = `${blk.label}-sides`;
+          // Its BoxGeometry top/bottom faces (groups 2/3, matching the
+          // "index 2 is the top" comment above) are invisible in the scene
+          // because the heightmap surfaces ARE those faces — but a mesh
+          // exporter has no concept of material.visible, so left as-is a
+          // CAD export would gain two flat, uncut rectangles floating right
+          // where the actual carved surfaces are. Tagged here so the CAD
+          // export strips exactly those two groups before baking this mesh.
+          shell.userData.stripBoxGroups = [2, 3];
           shell.position.set(offset.x + size.x / 2, bottom + size.z / 2, -(offset.y + size.y / 2));
 
           // Each blank lives in its own group so it can be rotated bodily
-          // when it is turned over, pivoting about its own centre.
+          // when it is turned over, pivoting about its own centre. Shifted
+          // here (whole-group, not per-vertex) so every blank's bottom lands
+          // on the shared ground plane regardless of its own thickness —
+          // see blockShifts above for why this is needed at all.
+          const groundShift = blockShifts.find(b => b.label === blk.label)?.shift ?? 0;
           const blankGroup = new THREE.Group();
-          const pivot = new THREE.Vector3(offset.x + size.x / 2, (top + bottom) / 2, -(offset.y + size.y / 2));
+          const pivot = new THREE.Vector3(offset.x + size.x / 2, (top + bottom) / 2 + groundShift, -(offset.y + size.y / 2));
           blankGroup.position.copy(pivot);
-          [surf, surfDown, shell].forEach(m => { m.position.sub(pivot); blankGroup.add(m); });
+          [surf, surfDown, shell].forEach(m => { m.position.sub(new THREE.Vector3(offset.x + size.x / 2, (top + bottom) / 2, -(offset.y + size.y / 2))); blankGroup.add(m); });
           group.add(blankGroup);
           hms.push({ nx, ny, cellX, cellY, x0: offset.x, y0: offset.y, x1: offset.x + size.x, y1: offset.y + size.y,
                      top, bottom, data, dataDown, geo, geoD, lastNormals: 0, label: blk.label,
@@ -7872,7 +10432,7 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
     }, 10);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(stockBlocks), materialColor, toolDiameter]);
+  }, [JSON.stringify(stockBlocks), materialColor, woodSpecies, toolDiameter]);
 
   // A rebuilt stock is un-flipped stock: clear the flip bookkeeping so the
   // turn-over replays from the start.
@@ -7880,12 +10440,17 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
 
   // --- move the tool cursor along the path ---
   useEffect(() => {
+    if (sceneRef.current.__activeRef) sceneRef.current.__activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
     const st = sceneRef.current;
     if (!st.toolGroup) return;
     const p = pointAtProgress(motionMoves, progress);
     const scenePt = toScene(p);
+    scenePt.y += shiftForY(p.y);   // match whichever blank the tool is currently over
     st.toolGroup.position.set(scenePt.x, scenePt.y, scenePt.z);
-  }, [progress, motionMoves]);
+  }, [progress, motionMoves, shiftForY]);
 
   // --- show/hide the toolpath overlay (green cut lines + red rapids) ---
   // The rapids are part of the toolpath overlay, so turning the whole
@@ -7929,19 +10494,111 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
   const carveBusyRef = useRef(false);
   const isBuildingRef = useRef(isBuilding);
   useEffect(() => { isBuildingRef.current = isBuilding; }, [isBuilding]);
+  // The hand-flip override lives in a ref as well as in props: an in-flight
+  // carve catch-up chain keeps calling the runCarveStep closure it started
+  // with, so reading the override through a ref is what lets that chain see
+  // a click that happened after it began.
+  const flipOverrideRef = useRef(flipOverride);
 
   const runCarveStep = useCallback(() => {
     const st = sceneRef.current;
     if (!st.scene || !st.stockMesh || isBuildingRef.current) { carveBusyRef.current = false; return; }
+    const hms = st.hms;
+    if (!hms || !hms.length) { carveBusyRef.current = false; setIsCarving(false); return; }
+
+    // ── TURNING A BLANK OVER ─────────────────────────────────────────
+    // The blank is rotated 180° about the X axis and set back down, so
+    // its bounding box is unchanged: what was the up face is now the
+    // down face, mirrored across the blank's Y centre. Both surfaces are
+    // reflected about the blank's mid-plane and swapped, which keeps the
+    // seam-side cuts visible on the underside instead of losing them.
+    //
+    // CRUCIALLY the swapped heightmaps ALREADY describe the turned-over
+    // board in table coordinates — physically leaving the meshes rotated
+    // by π on top of that flips the board TWICE, which is why the blank
+    // used to spin over while its cuts stayed put. The swapped data at
+    // rotation π is pixel-identical to the old data at rotation 0, so:
+    // jump the group by π (no visible change at all), then ease back to
+    // 0 — the board visibly turns over and LANDS on the swapped data.
+    const flipBlank = (hm) => {
+      const { nx, ny, top, bottom } = hm;
+      const sum = top + bottom;                         // z -> sum - z
+      const newUp = new Float32Array(nx * ny);
+      const newDown = new Float32Array(nx * ny);
+      for (let j = 0; j < ny; j++) {
+        const jm = ny - 1 - j;                          // mirror across Y
+        for (let i = 0; i < nx; i++) {
+          newUp[j * nx + i] = sum - hm.dataDown[jm * nx + i];
+          newDown[j * nx + i] = sum - hm.data[jm * nx + i];
+        }
+      }
+      hm.data.set(newUp);
+      hm.dataDown.set(newDown);
+      hm.flipped = !hm.flipped;
+      let r = hm.blankGroup.rotation.x + Math.PI;
+      if (r > Math.PI) r -= Math.PI * 2;   // stay in (-π, π]; a mid-animation flip keeps turning the same way
+      hm.blankGroup.rotation.x = r;
+      hm.rotTarget = 0;                    // the render loop eases to this
+    };
+    // Drive each blank toward the state it SHOULD be in, rather than
+    // toggling it. A toggle has to fire exactly once, and the bookkeeping
+    // for that lived on a memoised array React is free to rebuild — so the
+    // flip ran twice and the board spun straight back. Comparing against a
+    // desired state is idempotent: run it as often as you like, it settles.
+    // Returns true when any blank actually turned, so callers know the
+    // surface meshes need re-pushing even if nothing new was carved.
+    const applyFlipsUpTo = (moveIdx) => {
+      let changed = false;
+      for (let f = 0; f < flipPoints.length; f++) {
+        const fp = flipPoints[f];
+        const hm = hms.find(h => h.label === fp.label);
+        if (!hm) continue;
+        const ov = flipOverrideRef.current;
+        const want = ov !== null ? ov : moveIdx >= fp.moveIdx;
+        if (hm.flipped !== want) { flipBlank(hm); changed = true; }
+      }
+      return changed;
+    };
+    // Push the heightmap data into every blank's surface mesh.
+    const pushHeights = (recomputeNormals) => {
+      const now = performance.now();
+      hms.forEach(hm => {
+        const posA = hm.geo.attributes.position;
+        const posD = hm.geoD.attributes.position;
+        for (let k = 0; k < hm.nx * hm.ny; k++) {
+          posA.array[k * 3 + 1] = hm.data[k];
+          posD.array[k * 3 + 1] = hm.dataDown[k];
+        }
+        posA.needsUpdate = true;
+        posD.needsUpdate = true;
+        if (recomputeNormals || now - hm.lastNormals > 120) {
+          hm.geo.computeVertexNormals();
+          hm.geoD.computeVertexNormals();
+          hm.lastNormals = now;
+        }
+      });
+    };
+
     const targetProgress = targetProgressRef.current;
     if (Math.abs(targetProgress - bakedProgressRef.current) < 1e-9 && targetProgress !== 0) {
+      // Nothing new to carve — but turning the board by hand (or handing it
+      // back to the program with Auto) changes the DESIRED orientation
+      // without moving progress at all, so the blanks still have to be
+      // settled here. This early return used to skip that entirely, which
+      // is why the ⟳ Flip board button appeared to do nothing.
+      try {
+        const idx = motionMoves.length
+          ? Math.min(motionMoves.length - 1, Math.floor(Math.max(0, targetProgress) * motionMoves.length))
+          : 0;
+        if (applyFlipsUpTo(idx)) pushHeights(true);
+      } catch (err) {
+        console.error("[Viewer3D] Settling the blank orientation failed:", err);
+      }
       carveBusyRef.current = false;
       setIsCarving(false);
       return;
     }
     try {
-      const hms = st.hms;
-      if (!hms || !hms.length) { carveBusyRef.current = false; setIsCarving(false); return; }
       // Rewind = reset every blank's surface and re-stamp from the start
       // (the catch-up loop below spreads the work across ticks).
       if (targetProgress < bakedProgressRef.current) {
@@ -7985,53 +10642,16 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
           }
         }
       };
-      // ── TURNING A BLANK OVER ───────────────────────────────────────
-      // The blank is rotated 180° about the X axis and set back down, so
-      // its bounding box is unchanged: what was the up face is now the
-      // down face, mirrored across the blank's Y centre. Both surfaces are
-      // reflected about the blank's mid-plane and swapped, which keeps the
-      // seam-side cuts visible on the underside instead of losing them.
-      const flipBlank = (hm) => {
-        const { nx, ny, top, bottom } = hm;
-        const sum = top + bottom;                         // z -> sum - z
-        const newUp = new Float32Array(nx * ny);
-        const newDown = new Float32Array(nx * ny);
-        for (let j = 0; j < ny; j++) {
-          const jm = ny - 1 - j;                          // mirror across Y
-          for (let i = 0; i < nx; i++) {
-            newUp[j * nx + i] = sum - hm.dataDown[jm * nx + i];
-            newDown[j * nx + i] = sum - hm.data[jm * nx + i];
-          }
-        }
-        hm.data.set(newUp);
-        hm.dataDown.set(newDown);
-        hm.flipped = !hm.flipped;
-        hm.rotTarget = hm.flipped ? Math.PI : 0;   // the render loop eases to this
-      };
-      // Drive the blank toward the state it SHOULD be in, rather than
-      // toggling it. A toggle has to fire exactly once, and the bookkeeping
-      // for that lived on a memoised array React is free to rebuild — so the
-      // flip ran twice and the board spun straight back. Comparing against a
-      // desired state is idempotent: run it as often as you like, it settles.
-      const applyFlipsUpTo = (moveIdx) => {
-        for (let f = 0; f < flipPoints.length; f++) {
-          const fp = flipPoints[f];
-          const hm = hms.find(h => h.label === fp.label);
-          if (!hm) continue;
-          const want = flipOverride !== null ? flipOverride : moveIdx >= fp.moveIdx;
-          if (hm.flipped !== want) flipBlank(hm);
-        }
-      };
-
       const step = Math.min(...hms.map(hm => Math.min(hm.cellX, hm.cellY))) * 0.66;
       const budget = 12000; // stamps per tick — keeps playback fluid
       let used = 0;
       const toIdx = Math.min(motionMoves.length - 1, Math.floor(Math.max(0, targetProgress) * motionMoves.length));
-      // Settle the blank up front, not only inside the catch-up loop below.
-      // Turning the board by hand — or handing control back to the program —
-      // doesn't move progress, so that loop wouldn't run a single pass and
-      // the board would sit in the wrong state.
-      applyFlipsUpTo(toIdx);
+      // Deliberately NO up-front applyFlipsUpTo(toIdx) here: with the carve
+      // still behind the flip point, that call turned the board the moment
+      // the TARGET crossed the flip, and the loop's very next pass turned it
+      // straight back to bake the pre-flip moves — the "flips and instantly
+      // un-flips" the user saw. The loop below turns each blank exactly when
+      // the baking itself reaches its flip point, matching the real machine.
       let m = Math.floor(bakedProgressRef.current * motionMoves.length);
       for (; m <= toIdx && used < budget; m++) {
         applyFlipsUpTo(m);   // turn any blank whose flip point we've reached
@@ -8052,23 +10672,8 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
       bakedProgressRef.current = m > toIdx ? targetProgress : m / motionMoves.length;
 
       // push the new heights into every blank's surface mesh
-      const now = performance.now();
       const caughtUp = Math.abs(targetProgressRef.current - bakedProgressRef.current) < 1e-9;
-      hms.forEach(hm => {
-        const posA = hm.geo.attributes.position;
-        const posD = hm.geoD.attributes.position;
-        for (let k = 0; k < hm.nx * hm.ny; k++) {
-          posA.array[k * 3 + 1] = hm.data[k];
-          posD.array[k * 3 + 1] = hm.dataDown[k];
-        }
-        posA.needsUpdate = true;
-        posD.needsUpdate = true;
-        if (caughtUp || now - hm.lastNormals > 120) {
-          hm.geo.computeVertexNormals();
-          hm.geoD.computeVertexNormals();
-          hm.lastNormals = now;
-        }
-      });
+      pushHeights(caughtUp);
       setCarveError(null);
     } catch (err) {
       console.error("[Viewer3D] Carving step failed, showing last good shape:", err);
@@ -8079,14 +10684,20 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
       // of stopping — this is what guarantees the carve always catches up
       // rather than silently going stale.
       if (Math.abs(targetProgressRef.current - bakedProgressRef.current) > 1e-9) {
-        setTimeout(runCarveStep, 0);
+        // requestAnimationFrame, NOT setTimeout(0): setTimeout doesn't sync
+        // with the browser's paint cycle, so a long catch-up (scrubbing far,
+        // or a slow tick) could chain MANY heavy stamp passes back-to-back
+        // with no paint in between — the screen freezes, then jumps, instead
+        // of streaming in smoothly. rAF caps it to one chunk per painted
+        // frame, so progress is always visible as it happens.
+        requestAnimationFrame(runCarveStep);
       } else {
         carveBusyRef.current = false;
         setIsCarving(false);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [motionMoves, toolDiameter, tipShape, flipPoints, flipOverride]);
+  }, [motionMoves, toolDiameter, tipShape, flipPoints]);
 
   useEffect(() => {
     targetProgressRef.current = Math.min(1, Math.max(0, progress));
@@ -8095,15 +10706,28 @@ function Viewer3D({ parsed, progress, toolDiameter, tipShape = "drill", stockBlo
     if (Math.abs(targetProgressRef.current - bakedProgressRef.current) < 1e-9 && targetProgressRef.current !== 0) return;
     carveBusyRef.current = true;
     setIsCarving(true);
-    setTimeout(runCarveStep, 0);
+    requestAnimationFrame(runCarveStep);
   }, [progress, isBuilding, runCarveStep]);
 
-  // Flipping by hand doesn't change progress, so nudge the carve loop to
-  // re-settle the blank against the new desired state.
+  // Flipping by hand doesn't change progress, so the progress-driven effect
+  // above never fires — sync the ref and nudge the carve loop so it settles
+  // the blank against the new desired state. If a catch-up chain is already
+  // in flight it reads the override through the ref mid-run, but it may also
+  // be past its last applyFlips call, so keep retrying until the chain is
+  // idle and one clean settle pass has run.
   useEffect(() => {
+    flipOverrideRef.current = flipOverride;
     if (isBuilding) return;
-    targetProgressRef.current = progress;
-    runCarveStep();
+    let cancelled = false;
+    const nudge = () => {
+      if (cancelled) return;
+      if (carveBusyRef.current) { setTimeout(nudge, 30); return; }
+      carveBusyRef.current = true;
+      targetProgressRef.current = progress;
+      runCarveStep();
+    };
+    nudge();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flipOverride]);
 
@@ -8371,25 +10995,104 @@ function ProgramList({ parsed, currentLine }) {
 function GCodeViewerPage({ initialProgram, active }) {
   const [parsed, setParsed] = useState(null);
   const [filename, setFilename] = useState("");
+  // Only set when the program arrived from the flute calculator's "Open in
+  // Viewer" button (never for drag-and-drop/uploaded files, which have no
+  // original generation params to regenerate from) — lets the CAD export
+  // panel compute the true outline even when THIS copy's Outline Pass
+  // setting was "off", without touching what's actually loaded/downloaded.
+  const [outlineRegenParams, setOutlineRegenParams] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(0.25);
   const [layout, setLayout] = useState("split"); // "3d" | "split" | "2d"
   const [view2d, setView2d] = useState("top"); // "top" | "front" | "side"
   const [showRapids, setShowRapids] = useState(false);   // overlay off by default — the cut surface is the point
   const [showToolpath, setShowToolpath] = useState(false); // the green cut-line overlay in the 3D view
   const [toolDiameter, setToolDiameter] = useState(0.25);
   const [materialColor, setMaterialColor] = useState("#c9a876");
+  const [woodSpecies, setWoodSpecies] = useState("none");   // procedural grain in the material simulation — "none" keeps the flat materialColor above
   const [realStock, setRealStock] = useState(true);
   const [autoStock, setAutoStock] = useState(true); // best-fit stock from the program's own extents
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportUnits, setExportUnits] = useState("in");   // G-code programs are usually already in the machine's own units
+  const [exportBusy, setExportBusy] = useState(null);
+  const [exportMsg, setExportMsg] = useState(null);
+  const runMilledExport = async (fmt, forceUnits = null) => {
+    setExportMsg(null); setExportBusy(fmt);
+    await new Promise(r => setTimeout(r, 30));   // let the button repaint first
+    try {
+      const units = forceUnits || exportUnits;
+      const scaleF = units === "mm" ? 25.4 : 1;
+      // If this program has no outline-cutout pass at all (that CNC setting
+      // defaults to off, and isn't required for machining or for viewing
+      // the carve simulation), regenerate a throwaway copy that forces it
+      // on, purely to trace the true silhouette for trimming — this never
+      // changes the actually-loaded/downloaded program. Cheap to check
+      // first since parsed is already parsed; only regenerate (and
+      // re-parse ~400KB of G-code) when actually needed.
+      let regenParsed = null;
+      if (outlineRegenParams && Object.keys(extractOutlinePolygons(parsed)).length === 0) {
+        try {
+          const regenGcode = generateSplitBlockGCode({ ...outlineRegenParams, outlinePass: "cutout", only: "all" });
+          regenParsed = parseGCode(regenGcode);
+        } catch (e) {
+          console.warn("[CAD export] Couldn't regenerate an outline-cutout variant for trimming:", e);
+        }
+      }
+      const built = buildMilledExportRoot(scaleF, parsed, regenParsed);
+      if (!built) {
+        setExportMsg({ kind: "err", text: "No carved stock to export yet — load a program and let the 3D view finish building, then try again." });
+        return;
+      }
+      const { wrap, dispose, trimmed, outlineMissing, clipFailed, usedRegen } = built;
+      try {
+        const isOnshape = fmt === "stl-onshape";
+        const base = `naf_milled_${new Date().toISOString().slice(0, 10)}_${units}${isOnshape ? "_onshape" : ""}`;
+        if (fmt === "stl" || isOnshape) {
+          const res = new STLExporter().parse(wrap, { binary: true });
+          downloadBlob(new Blob([res], { type: "model/stl" }), `${base}.stl`);
+        } else if (fmt === "obj") {
+          const res = new OBJExporter().parse(wrap);
+          downloadBlob(new Blob([res], { type: "model/obj" }), `${base}.obj`);
+        } else if (fmt === "ply") {
+          const res = new PLYExporter().parse(wrap, () => {}, { binary: true });
+          downloadBlob(new Blob([res], { type: "model/ply" }), `${base}.ply`);
+        } else if (fmt === "glb") {
+          await new Promise((resolve, reject) => new GLTFExporter().parse(
+            wrap,
+            (out) => { downloadBlob(new Blob([out], { type: "model/gltf-binary" }), `${base}.glb`); resolve(); },
+            (err) => reject(err),
+            { binary: true },
+          ));
+        }
+        const outlineNote = trimmed
+          ? (usedRegen
+              ? " Trimmed to the finished part's true outline (this loaded program has no Body-Outline Full Cutout pass of its own, so one was computed just for this export — nothing about the program you're viewing or would download changed)."
+              : " Trimmed to the finished part's true outline — the stock margin and pin rails are cut away.")
+          : outlineMissing
+            ? " ⚠ No Body-Outline Full Cutout pass found in this program, so the FULL rectangular stock exported (margin and pin rails included) — enable that pass in the CNC settings for a trimmed file."
+            : clipFailed
+              ? " ⚠ The outline trim didn't take cleanly on one or more parts — exported untrimmed rather than risk losing geometry."
+              : "";
+        const label = isOnshape ? "STL for Onshape" : fmt.toUpperCase();
+        setExportMsg({ kind: "ok", text: `${label} exported in ${units === "mm" ? "millimetres" : "inches"} — the milled halves exactly as currently shown, at the current playback position.${outlineNote}${isOnshape ? " In Onshape: Insert → Import, then convert the resulting Mesh to a solid if you need to edit it further." : ""}` });
+      } finally { dispose(); }
+    } catch (err) {
+      console.error("[Milled CAD export] failed:", err);
+      setExportMsg({ kind: "err", text: "Export failed: " + (err && err.message ? err.message : String(err)) });
+    } finally { setExportBusy(null); }
+  };
   const [tipShape, setTipShape] = useState("drill");
   const [stockWidthIn, setStockWidthIn] = useState(4);
   const [stockThickIn, setStockThickIn] = useState(2);
-  const [ambientIntensity, setAmbientIntensity] = useState(0.6);
-  const [keyIntensity, setKeyIntensity] = useState(0.9);
-  const [keyAzimuth, setKeyAzimuth] = useState(195);
-  const [keyElevation, setKeyElevation] = useState(55);
+  // Lighting defaults tuned for reading toolpaths on the carved stock:
+  // no ambient wash, one strong raking key light barely above the horizon
+  // (192° / 5°) so every channel and scribe line throws a shadow.
+  const [ambientIntensity, setAmbientIntensity] = useState(0.0);
+  const [keyIntensity, setKeyIntensity] = useState(3.0);
+  const [keyAzimuth, setKeyAzimuth] = useState(192);
+  const [keyElevation, setKeyElevation] = useState(5);
   const fileInputRef = useRef(null);
 
   const loadProgram = useCallback((text, name) => {
@@ -8399,6 +11102,7 @@ function GCodeViewerPage({ initialProgram, active }) {
       setFilename(name || "program.gcode");
       setProgress(0);
       setPlaying(false);
+      setOutlineRegenParams(null);   // cleared here; the flute-page handoff effect below sets it right back if applicable
     } catch (err) {
       alert("Couldn't parse this file: " + err.message);
     }
@@ -8416,6 +11120,7 @@ function GCodeViewerPage({ initialProgram, active }) {
   useEffect(() => {
     if (initialProgram && initialProgram.gcode) {
       loadProgram(initialProgram.gcode, initialProgram.filename || "from-flute-calculator.gcode");
+      setOutlineRegenParams(initialProgram.splitParams || null);
     }
   }, [initialProgram, loadProgram]);
 
@@ -8463,7 +11168,7 @@ function GCodeViewerPage({ initialProgram, active }) {
   useEffect(() => { setFlipAcked([]); setFlipPrompt(null); }, [parsed]);
 
   useEffect(() => {
-    if (!playing || !parsed) return;
+    if (!playing || !parsed || !active) return;
     let raf, last = null;
     const tick = (now) => {
       if (last === null) { last = now; raf = requestAnimationFrame(tick); return; }
@@ -8485,7 +11190,7 @@ function GCodeViewerPage({ initialProgram, active }) {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, parsed, flipStops, flipAcked]);
+  }, [playing, speed, parsed, flipStops, flipAcked, active]);
 
   // Real stock dimensions: when "real stock size" is on, the block is
   // sized from the user's actual Width/Thickness (default 4in x 2in,
@@ -8638,10 +11343,72 @@ function GCodeViewerPage({ initialProgram, active }) {
           </div>
         )}
         <div style={{ flex: 1 }} />
+        {parsed && (
+          <button onClick={() => setExportOpen(v => !v)} style={{ ...buttonStyle, padding: "7px 14px", background: exportOpen ? "#233042" : "#1c242c" }}>
+            📐 Export CAD (milled halves)
+          </button>
+        )}
         <button onClick={() => fileInputRef.current && fileInputRef.current.click()} style={{ ...buttonStyle, padding: "7px 14px" }}>📂 Open File</button>
         <input ref={fileInputRef} type="file" accept=".gcode,.nc,.ngc,.tap,.txt" style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) handleFile(f); e.target.value = ""; }} />
       </div>
+      {parsed && exportOpen && (
+        <div style={{ padding: "10px 16px", background: "#12161b", borderBottom: "1px solid #1c242c" }}>
+          <div style={{ fontSize: 11, color: "#8a97a3", lineHeight: 1.5, marginBottom: 10 }}>
+            Downloads <strong style={{ color: "#dfe8ef" }}>exactly what's on screen right now</strong> — the carved
+            stock at the current playback position, both halves, watertight tessellated solids. Scrub or play to
+            100% first for the finished part; export partway through to check an in-progress cut.
+            {" "}If the program has a <strong style={{ color: "#dfe8ef" }}>Body-Outline Full Cutout</strong> pass,
+            the export is trimmed to that exact silhouette — no stock margin, no alignment-pin rails, just the
+            finished halves. Without it, the full rectangular stock exports instead (you'll be told which happened).
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "#8a97a3", fontWeight: 700, whiteSpace: "nowrap" }}>Model units:</span>
+            {["mm", "in"].map(u => (
+              <button key={u} onClick={() => setExportUnits(u)} style={{
+                padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                border: `1px solid ${exportUnits === u ? "#d4a05a" : "#2a3540"}`,
+                background: exportUnits === u ? "#d4a05a" : "#1c242c", color: exportUnits === u ? "#0f0801" : "#8a97a3",
+              }}>{u === "mm" ? "millimetres" : "inches (native)"}</button>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+            {[
+              { id: "stl", label: "🧊 STL", sub: "every slicer, most CAD" },
+              { id: "obj", label: "🧱 OBJ", sub: "named parts — Blender, Rhino" },
+              { id: "ply", label: "🔺 PLY", sub: "MeshLab, CloudCompare" },
+              { id: "glb", label: "📦 GLB", sub: "glTF 2.0 — web/AR" },
+            ].map(f => (
+              <button key={f.id} onClick={() => runMilledExport(f.id)} disabled={exportBusy !== null} style={{
+                padding: "10px 8px", borderRadius: 8, border: "1px solid #2a3540", background: "#1c242c", color: "#dfe8ef",
+                fontWeight: 800, fontSize: 12, cursor: exportBusy ? "wait" : "pointer", textAlign: "left",
+                opacity: exportBusy && exportBusy !== f.id ? 0.5 : 1,
+              }}>
+                <div>{exportBusy === f.id ? "⏳…" : f.label}</div>
+                <div style={{ fontSize: 9.5, color: "#8a97a3", fontWeight: 400, marginTop: 2, lineHeight: 1.35 }}>{f.sub}</div>
+              </button>
+            ))}
+          </div>
+          <button onClick={() => runMilledExport("stl-onshape", "mm")} disabled={exportBusy !== null} style={{
+            marginTop: 8, width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #2a4a5a",
+            background: "#152833", color: "#dfe8ef", fontWeight: 800, fontSize: 12, cursor: exportBusy ? "wait" : "pointer",
+            textAlign: "left", opacity: exportBusy && exportBusy !== "stl-onshape" ? 0.5 : 1,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+          }}>
+            <span>{exportBusy === "stl-onshape" ? "⏳ Exporting…" : "🔷 For Onshape"}</span>
+            <span style={{ fontSize: 9.5, color: "#8a97a3", fontWeight: 400 }}>binary STL, forced to mm — Onshape's most reliable mesh import, regardless of the unit toggle above</span>
+          </button>
+          {exportMsg && (
+            <div style={{
+
+              marginTop: 10, fontSize: 11, lineHeight: 1.5, padding: "8px 10px", borderRadius: 8,
+              background: exportMsg.kind === "err" ? "#2a1212" : "#12241a",
+              border: `1px solid ${exportMsg.kind === "err" ? "#5a2a2a" : "#2a5a3a"}`,
+              color: exportMsg.kind === "err" ? "#e8a0a0" : "#a0e8b8",
+            }}>{exportMsg.text}</div>
+          )}
+        </div>
+      )}
 
       {parsed ? (
         <>
@@ -8688,16 +11455,23 @@ function GCodeViewerPage({ initialProgram, active }) {
                   const now = v !== null ? v : clampedProgress >= (flipStops[0] ? flipStops[0].progress : 2);
                   return !now;
                 })}
-                title="Turn the top blank over by hand. Press Auto to hand it back to the program."
+                disabled={playing}
+                title={playing
+                  ? "Pause playback first — the board can't be turned over while the machine is cutting."
+                  : "Turn the top blank over by hand. Press Auto to hand it back to the program."}
                 style={{ ...buttonStyle, padding: "5px 10px", fontSize: 11,
+                         opacity: playing ? 0.4 : 1,
+                         cursor: playing ? "not-allowed" : "pointer",
                          background: flipOverride !== null ? "#3a2a10" : "#1c242c",
                          borderColor: flipOverride !== null ? "#7a5a20" : "#2a3540" }}>
                 ⟳ Flip board
               </button>
             )}
             {flipOverride !== null && (
-              <button onClick={() => setFlipOverride(null)} title="Let the program decide again"
-                style={{ ...buttonStyle, padding: "5px 10px", fontSize: 11 }}>Auto</button>
+              <button onClick={() => setFlipOverride(null)} disabled={playing}
+                title={playing ? "Pause playback first." : "Let the program decide again"}
+                style={{ ...buttonStyle, padding: "5px 10px", fontSize: 11,
+                         opacity: playing ? 0.4 : 1, cursor: playing ? "not-allowed" : "pointer" }}>Auto</button>
             )}
             <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#8a97a3", cursor: "pointer" }}>
               <span style={{ display: "none" }} /> 
@@ -8756,6 +11530,25 @@ function GCodeViewerPage({ initialProgram, active }) {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 16px", background: "#12161b", borderBottom: "1px solid #1c242c", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "#556170", textTransform: "uppercase", letterSpacing: "0.05em" }}>Material</span>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8a97a3" }}>
+              wood
+              <select value={woodSpecies} onChange={(e) => setWoodSpecies(e.target.value)}
+                style={{ background: "#1c242c", color: "#dfe8ef", border: "1px solid #2a3540", borderRadius: 6, padding: "3px 6px", fontSize: 11 }}>
+                {Object.entries(WOOD_SPECIES).map(([key, sp]) => <option key={key} value={key}>{sp.label}</option>)}
+              </select>
+            </label>
+            {woodSpecies === "none" && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8a97a3" }}>
+                flat color
+                <input type="color" value={materialColor} onChange={(e) => setMaterialColor(e.target.value)}
+                  style={{ width: 32, height: 22, padding: 0, border: "1px solid #2a3540", borderRadius: 4, background: "none", cursor: "pointer" }} />
+              </label>
+            )}
+            <span style={{ fontSize: 9.5, color: "#556170" }}>procedurally generated grain — no image files, fully offline</span>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "6px 16px", background: "#12161b", borderBottom: "1px solid #1c242c", flexWrap: "wrap" }}>
             <span style={{ fontSize: 10, color: "#556170", textTransform: "uppercase", letterSpacing: "0.05em" }}>Lighting</span>
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8a97a3" }}>
               ambient
@@ -8787,8 +11580,8 @@ function GCodeViewerPage({ initialProgram, active }) {
             <div style={{ flex: 1, display: "flex", minWidth: 0 }}>
               {(layout === "3d" || layout === "split") && (
                 <div style={{ flex: 1, minWidth: 0, borderRight: layout === "split" ? "1px solid #1c242c" : "none" }}>
-                  <Viewer3D parsed={parsed} progress={clampedProgress} toolDiameter={toolDiameter}
-                    stockBlocks={stockBlocks} stockFlips={stockFlips} flipOverride={flipOverride} showRapids={showRapids} showToolpath={showToolpath} materialColor={materialColor} tipShape={tipShape}
+                  <Viewer3D parsed={parsed} progress={clampedProgress} toolDiameter={toolDiameter} active={active}
+                    stockBlocks={stockBlocks} stockFlips={stockFlips} flipOverride={flipOverride} showRapids={showRapids} showToolpath={showToolpath} materialColor={materialColor} woodSpecies={woodSpecies} tipShape={tipShape}
                     ambientIntensity={ambientIntensity} keyIntensity={keyIntensity} keyAzimuth={keyAzimuth} keyElevation={keyElevation} />
                 </div>
               )}
@@ -8917,8 +11710,57 @@ const FLOW_DEFAULT_DESIGN = {
 const FLOW_AIR = { rho: 1.2, nu: 1.5e-5, c: 343 }; // kg/m³, m²/s, m/s (20 °C air)
 const IN2M = 0.0254;
 
+// ── FLUTE CRAFTING DIMENSIONS reference ───────────────────────────────
+// Distilled from Flutopedia's "Flute Crafting Dimensions" page (Clint
+// Goss, aggregating Mike Prairie's "Many Dimensions of the NAF", Russ
+// Wolf's plans, and the flue-pipe literature). These are the maker
+// numbers the app's recommendations and the Flow Studio's quality
+// scoring are anchored to:
+//   • Breath (blow) hole: usually 5/16"–3/8" diameter. Russ Wolf's plan:
+//     a 5/16" diameter breath hole 2-3/4" long for a mid-range G-minor
+//     flute (G4) with a 3/4" bore. Smaller bores/higher keys take 1/4"–
+//     5/16"; big bass bores go to 3/8".
+//   • Flue (focusing channel): ~1/32"–1/16" deep, length ≈ 2× TSH width.
+//   • TSH: roughly square, sized from the bore (the app's shW/shL
+//     formulas). Cut-up : flue-depth ratio sweet spot ≈ 3.5–6.5.
+//   • Ramp: ~30° with smooth transitions (Wolf); a concave scoop helps.
+//   • Splitting edge: tip ~1/128" above the flue floor, ~1/100" flat.
+//   • Bird chimney: 0 to ~1/16" — deeper darkens and flattens.
+const CRAFTING_DIMS = {
+  breathHoleDias: [0.25, 0.28125, 0.3125, 0.34375, 0.375], // 1/4 … 3/8 in 1/32 steps
+  recommendBreathHole(bore, rootFreq) {
+    const b = Math.max(0.4, Math.min(bore || 0.75, 2.2));
+    // Diameter: anchored at Wolf's 5/16" for a 3/4" bore, scaled gently
+    // with bore and clamped to the common 1/4"–3/8" range, then snapped
+    // to the nearest common drill fraction.
+    let dia = 0.3125 * Math.pow(b / 0.75, 0.45);
+    dia = Math.max(0.25, Math.min(dia, 0.375));
+    dia = this.breathHoleDias.reduce((best, v) =>
+      Math.abs(v - dia) < Math.abs(best - dia) ? v : best, this.breathHoleDias[0]);
+    // Length: Wolf's 2-3/4" at the same anchor, scaling with the bore
+    // (bigger flutes carry longer mouthpieces), slightly shorter for
+    // high keys whose SACs are short. Rounded to 1/8".
+    const fAdj = rootFreq > 0 ? Math.pow(392 / Math.max(150, Math.min(rootFreq, 900)), 0.25) : 1;
+    let len = 2.75 * Math.pow(b / 0.75, 0.6) * fAdj;
+    len = Math.round(Math.max(1.25, Math.min(len, 4)) * 8) / 8;
+    return { dia, len };
+  },
+  fractionLabel(v) {
+    const fr = { 0.25: "1/4\u2033", 0.28125: "9/32\u2033", 0.3125: "5/16\u2033", 0.34375: "11/32\u2033", 0.375: "3/8\u2033" };
+    return fr[v] || `${v.toFixed(3)}\u2033`;
+  },
+};
+
 // design: inches + Hz (bridge snapshot, possibly with nest overrides applied)
 // pressurePa: player breath (SAC) pressure. Typical NAF ≈ 250–600 Pa.
+// Empirical ratio between the jet's mean exit velocity U and the
+// convection speed of the instability wave riding it (u_c ≈ κ·U) — the
+// jet-drive/edge-tone literature for flute-like fipple instruments (Fabre &
+// Hirschberg 2000; Verge et al. 1994) consistently finds κ in the 0.35–0.45
+// range; 0.4 is the commonly cited central value and is what's used below
+// to turn the already-computed jet-drive parameter θ into an actual phase
+// lag for the visual jet, rather than a fixed constant that ignored it.
+const JET_KAPPA = 0.4;
 function computeFluteAeroacoustics(design, pressurePa) {
   const d = design || FLOW_DEFAULT_DESIGN;
   const U  = Math.sqrt(2 * Math.max(1, pressurePa) / FLOW_AIR.rho); // jet exit velocity, m/s
@@ -8972,10 +11814,57 @@ function computeFluteAeroacoustics(design, pressurePa) {
     Re <= 3000 ? { label: "Transitional — breathy warmth",     tone: "warn" } :
                  { label: "Turbulent — hissy",                 tone: "bad"  };
 
+  // ── EVERY nest control feeds the model (Crafting-Dimensions terms) ──
+  // (a) Jet development in the flue. A plane channel needs an entry
+  //     length Le ≈ 0.04·Re·h to form its laminar profile; a flue much
+  //     shorter than Le spits an unformed, breathy jet, and one many
+  //     times Le just adds friction. Prairie's "2× TSH width" default
+  //     lands near 1× Le for typical builds.
+  const flueLenIn = (d.flueLengthIn && d.flueLengthIn > 0) ? d.flueLengthIn : 2 * d.shW;
+  const devLenIn  = Math.max(0.02, 0.04 * Re * d.flueDepthIn);
+  const flueDevRatio = flueLenIn / devLenIn;
+  // (b) Splitting-edge (labium) offset. The flue-pipe literature (Fabre/
+  //     Verge) puts the edge slightly INSIDE the jet — offset from the
+  //     jet centreline of roughly 0.1–0.4 jet thicknesses. The tip sits
+  //     tipHeight above the flue floor; jet centre is at h/2.
+  const tipH = Number.isFinite(d.tipHeightIn) ? d.tipHeightIn : 0.0078;
+  const edgeOffsetRatio = (d.flueDepthIn / 2 - tipH) / Math.max(1e-4, d.flueDepthIn);
+  // (c) Ramp smoothness. Wolf cuts ~30° with smooth transitions; a steep
+  //     ramp is a diffuser past its separation angle — turbulence fed
+  //     straight into the flue. A concave scoop (rampCurve) eases it.
+  const rampDeg = Number.isFinite(d.rampAngleDeg) ? d.rampAngleDeg : 30;
+  const rampSep = Math.max(0, (rampDeg - 32) / 28) * (1 - 0.5 * Math.max(0, Math.min(1, d.rampCurve || 0)));
+  // (d) Bird chimney. A shaft over the TSH: a touch of chimney focuses,
+  //     but a deep one darkens/flattens (extra end-correction and
+  //     damping) — scored against the TSH length it shadows.
+  const chimRatio = Math.max(0, d.chimneyIn || 0) / Math.max(0.05, d.shL);
+  // (e) Breath supply. The mouthpiece hole must feed the flue without
+  //     choking: its area vs the flue slot area, plus the passage's own
+  //     length-to-bore friction (Wolf's 5/16" × 2-3/4" ≈ ratio 8.8).
+  const bhDia = Math.max(0.05, d.breathHoleWidthIn || 0.3125);
+  const bhLen = Math.max(0.2, d.breathHoleLengthIn || 2.75);
+  const supplyRatio = (Math.PI / 4 * bhDia * bhDia) / Math.max(1e-5, d.flueDepthIn * d.shW);
+  const bhFriction  = bhLen / bhDia;
+  // (f) Fipple bevel — NAF practice 25–45°; sharper splits cleaner but a
+  //     knife edge chatters and dulls. (g) Backset — Prairie allows 0 to
+  //     D/3 of bore reaching back under the flue; beyond that the edge
+  //     loses its footing over the resonator.
+  const fipDeg = Number.isFinite(d.fippleAngleDeg) ? d.fippleAngleDeg : 35;
+  const backsetRatio = Math.max(0, d.backsetIn || 0) / Math.max(1e-3, d.bore / 3);
+
+  // Δφ = 2π·f·lc/u_c = (2π/κ)·(f·lc/U) = (2π/κ)/θ — the phase lag the jet's
+  // instability wave accumulates crossing the window (flue exit → labium),
+  // derived directly from the SAME θ already used to classify underblown/
+  // optimal/overblown above, rather than a fixed visual constant. Floored
+  // so a near-silent (θ→0) design doesn't blow this up toward infinity.
+  const phaseLagCoeff = (2 * Math.PI / JET_KAPPA) / Math.max(1.5, theta);
+
   return {
     U, Q, QLpm: Q * 60000, Re, theta, thetaTop, f0, fTop,
     cutupRatio, f1pred, cents, hM: h, lcM: lc,
-    jetRegime, flowRegime,
+    jetRegime, flowRegime, phaseLagCoeff,
+    flueLenIn, flueDevRatio, edgeOffsetRatio, rampSep, chimRatio,
+    supplyRatio, bhFriction, fipDeg, backsetRatio,
   };
 }
 
@@ -8996,18 +11885,36 @@ function scoreFlowQuality(m) {
   const breath    = Math.min(turb, strength);
   const cutup     = band(m.cutupRatio, 1.5, 3.5, 6.5, 10);
   const tuning    = Math.max(0, 100 - Math.abs(m.cents) * 0.8);
+  // Crafting-Dimensions terms — every nest control scores:
+  const edge      = band(m.edgeOffsetRatio, -0.15, 0.08, 0.42, 0.7);     // labium just inside the jet
+  const flueDev   = band(m.flueDevRatio,    0.15, 0.55, 3.5, 9);         // formed jet, not a friction pipe
+  const rampQ     = Math.max(0, 100 - 140 * m.rampSep);                  // separation-free ramp
+  const chimQ     = band(m.chimRatio,      -1, -0.5, 0.18, 0.85);        // a touch of chimney ok, deep = dull
+  const supply    = Math.min(band(m.supplyRatio, 0.6, 1.6, 40, 90),
+                             band(m.bhFriction,  1, 3, 13, 26));         // hole feeds the flue, passage not a straw
+  const fipQ      = band(m.fipDeg,          8, 22, 46, 62);              // NAF-practice bevel window
+  const backQ     = band(m.backsetRatio,   -1, -0.5, 0.85, 1.6);         // within Prairie's 0–D/3
 
   const total = Math.round(
-    0.30 * driveRoot + 0.15 * driveTop + 0.25 * breath + 0.20 * cutup + 0.10 * tuning
+    0.20 * driveRoot + 0.09 * driveTop + 0.14 * breath + 0.11 * cutup +
+    0.10 * edge + 0.08 * flueDev + 0.06 * rampQ + 0.05 * chimQ +
+    0.07 * supply + 0.03 * fipQ + 0.02 * backQ + 0.05 * tuning
   );
   return {
     total: Math.max(0, Math.min(100, total)),
     parts: [
-      { key: "Jet drive — root note", val: Math.round(driveRoot), w: 30 },
-      { key: "Jet drive — top note",  val: Math.round(driveTop),  w: 15 },
-      { key: "Breath / turbulence",   val: Math.round(breath),    w: 25 },
-      { key: "Cut-up geometry",       val: Math.round(cutup),     w: 20 },
-      { key: "Chamber tuning",        val: Math.round(tuning),    w: 10 },
+      { key: "Jet drive — root note",   val: Math.round(driveRoot), w: 20 },
+      { key: "Jet drive — top note",    val: Math.round(driveTop),  w: 9 },
+      { key: "Breath / turbulence",     val: Math.round(breath),    w: 14 },
+      { key: "Cut-up geometry",         val: Math.round(cutup),     w: 11 },
+      { key: "Splitting-edge offset",   val: Math.round(edge),      w: 10 },
+      { key: "Flue jet development",    val: Math.round(flueDev),   w: 8 },
+      { key: "Ramp smoothness",         val: Math.round(rampQ),     w: 6 },
+      { key: "Bird chimney voicing",    val: Math.round(chimQ),     w: 5 },
+      { key: "Breath-hole supply",      val: Math.round(supply),    w: 7 },
+      { key: "Fipple bevel",            val: Math.round(fipQ),      w: 3 },
+      { key: "Backset",                 val: Math.round(backQ),     w: 2 },
+      { key: "Chamber tuning",          val: Math.round(tuning),    w: 5 },
     ],
   };
 }
@@ -9028,21 +11935,62 @@ function optimizeNestForDesign(design, pressurePa) {
 }
 
 // Best OVERALL settings for the current design (note, chamber length,
-// bore, holes): a grid search over breath pressure, flue depth and cut-up,
-// maximizing the composite quality score — which already balances root
-// AND top-note jet drive, turbulence, cut-up geometry and tuning.
+// bore, holes, breath hole): a coordinate-descent search over EVERY nest
+// control — breath pressure, flue depth & length, cut-up, splitting-edge
+// tip height, ramp angle & scoop, bird chimney, backset and fipple bevel
+// — maximizing the composite quality score, which weighs every one of
+// those against the Crafting-Dimensions targets. Nothing is guessed:
+// each candidate is run through the full aeroacoustics model.
 function optimizeEverything(design) {
-  let best = null;
-  for (let P = 150; P <= 900; P += 25) {
-    for (let h = 0.02; h <= 0.0901; h += 0.005) {
-      for (let lc = 0.15; lc <= 0.5001; lc += 0.0125) {
-        const m = computeFluteAeroacoustics({ ...design, flueDepthIn: h, shL: lc }, P);
-        const sc = scoreFlowQuality(m).total;
-        if (!best || sc > best.sc) best = { sc, P, h, lc };
+  const bore = design.bore || 0.75;
+  const dims = [
+    { k: "P",            lo: 120,  hi: 900,               isPressure: true },
+    { k: "flueDepthIn",  lo: 0.02, hi: 0.09 },
+    { k: "shL",          lo: 0.15, hi: 0.5 },
+    { k: "flueLengthIn", lo: 0.2,  hi: 1.6 },
+    { k: "tipHeightIn",  lo: 0,    hi: 0.03 },
+    { k: "rampAngleDeg", lo: 15,   hi: 60 },
+    { k: "rampCurve",    lo: 0,    hi: 1 },
+    { k: "chimneyIn",    lo: 0,    hi: 0.12 },
+    { k: "backsetIn",    lo: 0,    hi: bore / 3 },
+    { k: "fippleAngleDeg", lo: 20, hi: 50 },
+  ];
+  // Seed from the design's own current values, clamped into range.
+  const cur = { P: 350 };
+  dims.forEach(d => {
+    if (d.isPressure) return;
+    const v = Number.isFinite(design[d.k]) && design[d.k] !== null ? design[d.k] : (d.lo + d.hi) / 2;
+    cur[d.k] = Math.max(d.lo, Math.min(d.hi, v));
+  });
+  const evalAt = (vals) => {
+    const m = computeFluteAeroacoustics({ ...design, ...vals }, vals.P);
+    return scoreFlowQuality(m).total;
+  };
+  let bestSc = evalAt(cur);
+  // 3 sweeps × 11 samples per control: each control is optimized against
+  // the CURRENT best of all the others — repeated so interactions settle
+  // (e.g. flue depth ↔ cut-up ratio ↔ tip height all trade off).
+  for (let sweep = 0; sweep < 3; sweep++) {
+    for (const d of dims) {
+      let bv = cur[d.k];
+      for (let s = 0; s <= 10; s++) {
+        const v = d.lo + (d.hi - d.lo) * (s / 10);
+        const sc = evalAt({ ...cur, [d.k]: v });
+        if (sc > bestSc) { bestSc = sc; bv = v; }
+      }
+      cur[d.k] = bv;
+      // one refinement pass around the winner at 1/10 the coarse step
+      const fine = (d.hi - d.lo) / 10;
+      for (let s = -4; s <= 4; s++) {
+        const v = Math.max(d.lo, Math.min(d.hi, bv + s * fine / 5));
+        const sc = evalAt({ ...cur, [d.k]: v });
+        if (sc > bestSc) { bestSc = sc; cur[d.k] = v; }
       }
     }
   }
-  return best;
+  return { sc: bestSc, ...cur,
+           // kept for backwards compatibility with earlier callers
+           h: cur.flueDepthIn, lc: cur.shL };
 }
 
 // Inverse of the θ condition: the breath pressure that puts θ = 7 for the
@@ -9063,11 +12011,11 @@ class FlowStudioViewer {
     this.container = container;
     this.getState = getState;
     this.labelEls = labelEls;
-    this.trackingPoints = { ramp: null, flue: null, tsh: null, fipple: null };
+    this.trackingPoints = Object.fromEntries(NEST_DIM_KEYS.map(d => [d.key, null]));
     this.particleSystem = null;
     this.disposed = false;
     this.layout = null;
-    this.clock = new THREE.Clock();
+    this.timer = new THREE.Timer();
     try { window.__flowViewer = this; } catch (e) { /* debug handle only */ }
     this.initEngine();
     this.buildChamber();
@@ -9188,6 +12136,10 @@ class FlowStudioViewer {
       });
     }
     this.meshGroup = new THREE.Group();
+    // Analytic record of every solid's cross-section polygon — the flow
+    // field rasterizes THESE, so the air the particles see is EXACTLY the
+    // wood on screen (this ends particles hitting invisible walls).
+    this.solids = [];
 
     const wood = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.65, metalness: 0.05, side: THREE.DoubleSide });
     const woodDim = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.75, metalness: 0.05, side: THREE.DoubleSide });
@@ -9197,6 +12149,7 @@ class FlowStudioViewer {
     // by the model's own internal walls, with the section face at z = 0.
     const extrude = { depth: L.Wd / 2, bevelEnabled: false };
     const addShape = (pts, mat) => {
+      this.solids.push(pts.map(pp => [pp[0], pp[1]]));
       const s = new THREE.Shape();
       s.moveTo(pts[0][0], pts[0][1]);
       for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
@@ -9232,6 +12185,20 @@ class FlowStudioViewer {
       bs.lineTo(-L.bk, L.yFlueFloor); // flue floor ends at the backset face
       bs.lineTo(-L.bk, L.yBoreBot);   // downstream face, set back (Prairie 0–D/3)
       bs.closePath();
+      { // record the block polygon for the flow field (scoop curve sampled)
+        const poly = [[L.rampStartX, L.yBoreBot]];
+        if (k > 0.01) {
+          const mx = (L.rampStartX + L.rampTopX) / 2, my = (L.yBoreBot + L.yFlueFloor) / 2;
+          const cx = mx + k * (L.rampTopX - mx), cy = my + k * (L.yBoreBot - my);
+          for (let qq = 1; qq <= 8; qq++) {
+            const tq = qq / 8, om = 1 - tq;
+            poly.push([om * om * L.rampStartX + 2 * om * tq * cx + tq * tq * L.rampTopX,
+                       om * om * L.yBoreBot + 2 * om * tq * cy + tq * tq * L.yFlueFloor]);
+          }
+        } else poly.push([L.rampTopX, L.yFlueFloor]);
+        poly.push([-L.bk, L.yFlueFloor], [-L.bk, L.yBoreBot]);
+        this.solids.push(poly);
+      }
       const bg = new THREE.ExtrudeGeometry(bs, extrude);
       bg.translate(0, 0, -L.Wd / 2);
       const bm = new THREE.Mesh(bg, wood);
@@ -9278,21 +12245,39 @@ class FlowStudioViewer {
     // (Prairie's cutting-edge detail).
     const fippleRad = Math.max(0.05, params.fippleAngle * Math.PI / 180); // slider reaches 5°
     // Tip sits ABOVE the bottom of the flue channel by the adjustable
-    // tip height (1/128" default, per Prairie).
+    // tip height (1/128" default, per Prairie) — tipY is the CENTRE of
+    // the flat, not one of its ends.
     const tipY = L.yFlueFloor + L.tipHeight;
-    const bevRun = Math.max(0.2, (tipY - L.yWallBot) / Math.tan(fippleRad)); // fipple bevel (slider-driven)
-    const topRun = (L.yFloorTop - tipY) / Math.tan(15 * Math.PI / 180);      // fixed outer relief
-    const noseEnd = L.lc + Math.max(bevRun, L.tipFlat + topRun) + 1;
+    // Prairie's "~1/100 flat": a VERTICAL step at this fixed X station —
+    // sanding the theoretical sharp point flat leaves a small vertical
+    // face, not a horizontal ledge. The bevel rises to tipY−tipFlat/2,
+    // the flat carries it up to tipY+tipFlat/2, and the relief continues
+    // from there — same X throughout, no horizontal offset.
+    const tipYLow = tipY - L.tipFlat / 2, tipYHigh = tipY + L.tipFlat / 2;
+    const bevRun = Math.max(0.2, (tipYLow - L.yWallBot) / Math.tan(fippleRad));  // fipple bevel (slider-driven)
+    const topRun = (L.yFloorTop - tipYHigh) / Math.tan(15 * Math.PI / 180);       // outer relief, fixed 15°
+    // The nose block's downstream anchor is sized from the fipple bevel and
+    // the outer relief's own runs. tipFlat no longer feeds in directly here —
+    // it's now baked into bevRun/topRun themselves (both shrink slightly as
+    // tipFlat grows, since each surface now covers a slightly smaller rise) —
+    // so this max() only needs a fixed margin, never a tipFlat term.
+    const noseEnd = L.lc + Math.max(bevRun, topRun) + 2;
     addShape([
-      [L.lc, tipY],
+      [L.lc, tipYLow],
       [L.lc + bevRun, L.yWallBot],
       [noseEnd, L.yWallBot],
       [noseEnd, L.yFloorTop],
-      [L.lc + L.tipFlat + topRun, L.yFloorTop],
-      [L.lc + L.tipFlat, tipY],                  // Prairie's ~1/100" tip flat
+      [L.lc + topRun, L.yFloorTop],
+      [L.lc, tipYHigh],                  // Prairie's ~1/100" tip flat — VERTICAL, same X as the bevel's end
     ], wood);
     this.trackingPoints.tsh = new THREE.Vector3(L.lc / 2, L.yFlueFloor - 1.2, 0);
     this.trackingPoints.fipple = new THREE.Vector3(L.lc + 0.8, tipY - 1.0, 0);
+    // ── the rest of the nest's dimension anchors ──
+    this.trackingPoints.sacExit = new THREE.Vector3((L.exitX0 + L.rampTopX) / 2, 2.2, 0);
+    this.trackingPoints.tip     = new THREE.Vector3(L.lc + 0.8, tipY - 3.2, 0);   // fixed offset — tipFlat is vertical now, not a reach along X
+    this.trackingPoints.wall    = new THREE.Vector3(L.lc + 10, -L.T / 2, 0);
+    this.trackingPoints.backset = new THREE.Vector3(-Math.max(1, L.bk / 2), (L.yFlueFloor + L.yBoreBot) / 2, 0);
+    this.trackingPoints.chimney = new THREE.Vector3(-L.flueLen * 0.35, L.birdTop + L.chim + 1.6, 0);
 
     // Bore top wall from the cutting-edge nose to the foot, with REAL
     // finger-hole gaps (position fromTSH, real diameters) from the design.
@@ -9308,10 +12293,240 @@ class FlowStudioViewer {
     if (L.footX > segX + 0.5) box(segX, L.footX, L.yWallBot, L.yFloorTop, wood);
     this.holeGaps = gaps;
 
+    // (The experimental glass cover pane was removed by request — the open
+    // cutaway view is back. The flow field, void-filling smoke and all the
+    // new physics/settings stay exactly as they are.)
+
     this.scene.add(this.meshGroup);
+    this.scheduleFieldBuild();
+  }
+
+  // The potential-flow solve is ~50–150 ms — too heavy for every slider
+  // tick, so it's debounced; particles ride the previous field meanwhile.
+  scheduleFieldBuild() {
+    if (this._fieldTimer) clearTimeout(this._fieldTimer);
+    this._fieldTimer = setTimeout(() => { this._fieldTimer = null; if (!this.disposed) this.buildFlowField(); }, 130);
+    if (!this.flow) this.buildFlowField();   // first ever build: immediate
   }
 
   rebuild() { this.buildChamber(); }
+
+  // ── REAL FLOW FIELD ────────────────────────────────────────────────
+  // A potential-flow (Laplace) pressure solve on a grid rasterized from
+  // the SAME polygons the wood was built from. Breath pressure at the
+  // mouth hole, ambient pressure everywhere outside the body — the
+  // resulting −∇P velocity field fills the ENTIRE internal void and can
+  // only leave through the real openings: the TSH window, the finger
+  // holes, and the open foot. Particles advect through this field, so
+  // there is no scripted path left to disagree with the geometry.
+  buildFlowField() {
+    const L = this.layout;
+    if (!L || !this.solids) return;
+    const pad = Math.max(10, L.B * 1.0);
+    const gx0 = L.sacX0 - L.bhL - pad, gx1 = L.footX + Math.max(30, L.B * 2.4);
+    const gy0 = L.yBotWall - 6, gy1 = L.birdTop + Math.max(10, L.B * 0.7);
+    // cell size: resolve the flue (≥2 cells) but cap the grid ~110k cells
+    let cs = Math.max(0.55, Math.min(1.6, L.h / 2));
+    cs = Math.max(cs, Math.sqrt(((gx1 - gx0) * (gy1 - gy0)) / 110000));
+    const nx = Math.max(8, Math.ceil((gx1 - gx0) / cs) + 1);
+    const ny = Math.max(8, Math.ceil((gy1 - gy0) / cs) + 1);
+    const dx = (gx1 - gx0) / (nx - 1), dy = (gy1 - gy0) / (ny - 1);
+
+    // point-in-polygon (even-odd) against the recorded solids
+    const inPoly = (poly, x, y) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    };
+    const isSolidPt = (x, y) => {
+      for (let k = 0; k < this.solids.length; k++) if (inPoly(this.solids[k], x, y)) return true;
+      return false;
+    };
+
+    // cell types: 0 solid · 1 air · 2 ambient (P=0) · 3 inlet (P=1)
+    const type = new Uint8Array(nx * ny);
+    const P = new Float32Array(nx * ny);
+    for (let j = 0; j < ny; j++) {
+      const y = gy0 + j * dy;
+      for (let i = 0; i < nx; i++) {
+        const x = gx0 + i * dx;
+        const id = j * nx + i;
+        if (isSolidPt(x, y)) { type[id] = 0; continue; }
+        const border = i === 0 || j === 0 || i === nx - 1 || j === ny - 1;
+        const underBird = x >= L.exitX0 - 3 && x <= (L.chim > 0.1 ? L.lc + 2 : 0);
+        const openSky = (y > L.yFloorTop + 1 && !underBird) || y > L.birdTop + 1
+          || x > L.footX + L.B * 1.6;
+        if (border || openSky) { type[id] = 2; P[id] = 0; }
+        else { type[id] = 1; P[id] = 0.25; }
+      }
+    }
+    // inlet plenum: outside air just before the breath hole (overrides
+    // ambient there, so smoke gets DRAWN IN through the hole)
+    for (let j = 0; j < ny; j++) {
+      const y = gy0 + j * dy;
+      if (Math.abs(y - L.sacMidY) > L.bhW * 0.5 + 2.5) continue;
+      for (let i = 0; i < nx; i++) {
+        const x = gx0 + i * dx;
+        if (x > L.sacX0 - L.bhL + 1.5) break;
+        const id = j * nx + i;
+        if (type[id] !== 0) { type[id] = 3; P[id] = 1; }
+      }
+    }
+
+    // two-level SOR: coarse pressure first (long-range balance travels
+    // cheaply), prolong, then refine on the fine grid
+    const sor = (Pw, tw, w, hgt, sweeps) => {
+      for (let sw = 0; sw < sweeps; sw++) {
+        for (let j = 1; j < hgt - 1; j++) {
+          for (let i = 1; i < w - 1; i++) {
+            const id = j * w + i;
+            if (tw[id] !== 1) continue;
+            let sum = 0, n = 0;
+            const nb = [id - 1, id + 1, id - w, id + w];
+            for (let q = 0; q < 4; q++) { const t2 = tw[nb[q]]; if (t2 !== 0) { sum += Pw[nb[q]]; n++; } }
+            if (n) Pw[id] += 1.82 * (sum / n - Pw[id]);
+          }
+        }
+      }
+    };
+    const cf = 3, nxc = Math.ceil(nx / cf), nyc = Math.ceil(ny / cf);
+    const tc = new Uint8Array(nxc * nyc), Pc = new Float32Array(nxc * nyc);
+    for (let j = 0; j < nyc; j++) for (let i = 0; i < nxc; i++) {
+      const fi = Math.min(nx - 1, i * cf + 1), fj = Math.min(ny - 1, j * cf + 1);
+      const t2 = type[fj * nx + fi];
+      tc[j * nxc + i] = t2; Pc[j * nxc + i] = t2 === 3 ? 1 : t2 === 2 ? 0 : 0.25;
+    }
+    sor(Pc, tc, nxc, nyc, 420);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const id = j * nx + i;
+      if (type[id] === 1) {
+        const ci = Math.min(nxc - 1, Math.floor(i / cf)), cj = Math.min(nyc - 1, Math.floor(j / cf));
+        P[id] = Pc[cj * nxc + ci];
+      }
+    }
+    sor(P, type, nx, ny, 90);
+
+    // precomputed cell velocities = −∇P (one-sided at walls)
+    const vx = new Float32Array(nx * ny), vy = new Float32Array(nx * ny);
+    const pAt = (i, j, self) => {
+      const id = j * nx + i;
+      return type[id] === 0 ? self : P[id];
+    };
+    for (let j = 1; j < ny - 1; j++) for (let i = 1; i < nx - 1; i++) {
+      const id = j * nx + i;
+      if (type[id] === 0) continue;
+      const p0 = P[id];
+      vx[id] = -(pAt(i + 1, j, p0) - pAt(i - 1, j, p0)) / (2 * dx);
+      vy[id] = -(pAt(i, j + 1, p0) - pAt(i, j - 1, p0)) / (2 * dy);
+    }
+    // normalize so the flue core = relative speed 1
+    let vFlue = 1e-6;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const x = gx0 + i * dx, y = gy0 + j * dy;
+      if (x > -L.flueLen && x < 0 && y > L.yFlueFloor && y < L.yFloorTop) {
+        const id = j * nx + i;
+        vFlue = Math.max(vFlue, Math.hypot(vx[id], vy[id]));
+      }
+    }
+    // interior air cells (for scattering particles through the whole void)
+    const interior = [];
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      if (type[j * nx + i] === 1) interior.push(j * nx + i);
+    }
+    this.flow = { gx0, gy0, dx, dy, nx, ny, type, P, vx, vy, vFlue, interior };
+  }
+
+  // Bilinear-interpolated relative velocity at (x, y): flue core ≈ 1.
+  sampleFlow(x, y) {
+    const F = this.flow;
+    if (!F) return { vx: 1, vy: 0, rel: 0.2, t: 1 };
+    let fi = (x - F.gx0) / F.dx, fj = (y - F.gy0) / F.dy;
+    fi = Math.max(0, Math.min(F.nx - 1.001, fi));
+    fj = Math.max(0, Math.min(F.ny - 1.001, fj));
+    const i0 = Math.floor(fi), j0 = Math.floor(fj), fu = fi - i0, fv = fj - j0;
+    const id00 = j0 * F.nx + i0, id10 = id00 + 1, id01 = id00 + F.nx, id11 = id01 + 1;
+    let vx = ((F.vx[id00] * (1 - fu) + F.vx[id10] * fu) * (1 - fv) + (F.vx[id01] * (1 - fu) + F.vx[id11] * fu) * fv) / F.vFlue;
+    let vy = ((F.vy[id00] * (1 - fu) + F.vy[id10] * fu) * (1 - fv) + (F.vy[id01] * (1 - fu) + F.vy[id11] * fu) * fv) / F.vFlue;
+    // ── CONTINUITY DRIFT ── With every opening held at ambient, the
+    // Laplace solve pins the whole bore near P≈0, so its axial gradient
+    // all but vanishes — yet mass conservation says the resonator carries
+    // a mean flow of U·(h/B): what squeezed through the flue slot spreads
+    // over the bore height and keeps moving toward the holes and the open
+    // foot. That drift is added here (rel units, flue core = 1); the
+    // potential part still steers parcels up and out wherever a hole's
+    // gradient localizes, which is exactly how real smoke leaves a flute.
+    const L = this.layout;
+    if (L && x > L.lc && x < L.footX && y < L.yWallBot && y > L.yBoreBot) {
+      vx += Math.min(0.28, Math.max(0.06, L.h / L.B));
+    }
+    const rel = Math.min(1.7, Math.hypot(vx, vy));
+    return { vx, vy, rel, t: F.type[id00] };
+  }
+
+  isSolidCell(x, y) {
+    const F = this.flow;
+    if (!F) return false;
+    const i = Math.round((x - F.gx0) / F.dx), j = Math.round((y - F.gy0) / F.dy);
+    if (i < 0 || j < 0 || i >= F.nx || j >= F.ny) return false;
+    return F.type[j * F.nx + i] === 0;
+  }
+
+  // ── THE JET ────────────────────────────────────────────────────────
+  // Potential flow has no inertia: at the flue exit the −∇P field bends
+  // straight up toward ambient, so the smoke used to spill out of the
+  // window the moment it cleared the flue — nothing like a real flute.
+  // Real air leaves the flue as a coherent momentum jet: it crosses the
+  // ENTIRE cut-up at ~U as a column, flapping at f0 with exponentially
+  // growing instability (Verge/Fabre), and only at the LABIUM does it
+  // split — deflected-in phases duck under the edge and drive the bore,
+  // deflected-out phases shed over the top. This returns that jet as a
+  // Gaussian core around the flapping centreline, blended OVER the
+  // potential field by core weight; the slow ambient air around the jet
+  // keeps the potential motion, which is exactly the real contrast.
+  jetVelocity(x, y, t, fVis, vis, phaseLagCoeff, turb) {
+    const L = this.layout;
+    const h = L.h;
+    if (x < -1.5 || x > L.lc + h * 10 + 1) return null;
+    if (y < L.yFlueFloor - h * 1.8 || y > L.yFloorTop + Math.max(2, L.chim + 2) + h * 2) return null;
+    const jetMid = L.yFlueFloor + h / 2;
+    const xi = Math.max(0, x / Math.max(0.5, L.lc));
+    const xic = Math.min(xi, 1.15);
+    const plc = phaseLagCoeff != null ? phaseLagCoeff : 2.4;   // callers that don't pass it (older code paths) keep the old fixed look
+    const tb = turb || 0;
+    // Real turbulent shear layers lose phase coherence as they develop —
+    // a laminar jet (low Re) arrives at the labium as a clean, near-
+    // sinusoidal wave; a transitional/turbulent one (high Re) is visibly
+    // jittery by the time it gets there. Correlated across position/time
+    // (not per-particle) since real shear-layer wrinkles are coherent
+    // structures, not independent noise — that finer-grained randomness is
+    // layered on separately, per-particle, elsewhere.
+    const jitter = tb > 0 ? tb * 0.4 * xic * Math.sin(t * 41.0 + xic * 23.0) : 0;
+    const phase = 2 * Math.PI * fVis * t - xic * plc + jitter;
+    const amp = Math.min(h * 2.4, 0.30 * h * Math.exp((2.1 + 0.5 * tb) * xic));
+    const yJet = jetMid + amp * Math.sin(phase);
+    const halfW = 0.6 * h * (1 + 0.85 * Math.min(xi, 1.3)); // the jet spreads as it goes
+    const dyn = (y - yJet) / halfW;
+    let w = Math.exp(-dyn * dyn) * (x < 0 ? 0.65 : 1);
+    // past the nose the shed stream keeps its momentum and DECAYS instead
+    // of stopping dead — a hard band edge left parcels parked in a dead
+    // layer skimming the outer surface right after the labium
+    if (x > L.lc + 2 * h) w *= Math.exp(-(x - (L.lc + 2 * h)) / (4 * h));
+    if (w < 0.02) return null;
+    // parcels ride the flapping centreline: their transverse velocity is
+    // the centreline's own motion, not a superimposed wiggle
+    let vJy = amp * Math.cos(phase) * 2 * Math.PI * fVis;   // parcels track the centreline's dives fully
+    // the over-the-top branch separates from the surface at the nose
+    // crest and lifts away — real shed jets don't hug the wood. Lift only
+    // applies on OUTWARD phases of the column (centreline over the tip);
+    // during inward phases the whole column is pouring under the edge and
+    // lifting it would fight the pour.
+    const tipY = L.yFlueFloor + L.tipHeight;
+    if (x > L.lc + 0.2 && y > tipY + 0.1 * h && yJet >= tipY + 0.15 * h) vJy += vis * 0.2;
+    return { w, vx: vis, vy: vJy, xi, phase, yJet };
+  }
 
   // Camera framing: "nest" = close-up on ramp→flue→TSH; "flute" = whole chamber.
   frame(mode) {
@@ -9346,31 +12561,46 @@ class FlowStudioViewer {
     return tex;
   }
 
-  // Puffy multi-lobe sprite for smoke mode: several soft blobs, masked to
-  // a round falloff — reads as a little cloud instead of a fuzzy dot.
+  // Fractal-noise smoke sprite: four octaves of value noise shaped by a
+  // radial falloff, with a soft internal light gradient — each puff has
+  // real internal wisps and ragged edges instead of reading as a blob.
+  // Combined with per-particle rotation + growth in the shader, this is
+  // what makes the smoke look like smoke.
   makeSmokeTexture() {
+    const S = 192;
     const c = document.createElement("canvas");
-    c.width = c.height = 128;
+    c.width = c.height = S;
     const ctx = c.getContext("2d");
-    const rng = (a) => { const x = Math.sin(a * 127.1) * 43758.5453; return x - Math.floor(x); };
-    for (let i = 0; i < 8; i++) {
-      const bx = 64 + (rng(i + 1) - 0.5) * 52;
-      const by = 64 + (rng(i + 9) - 0.5) * 52;
-      const br = 16 + rng(i + 17) * 22;
-      const g = ctx.createRadialGradient(bx, by, 1, bx, by, br);
-      g.addColorStop(0, "rgba(255,255,255,0.55)");
-      g.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, 128, 128);
+    const img = ctx.createImageData(S, S);
+    const hash = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
+    const vnoise = (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = hash(xi, yi), b = hash(xi + 1, yi), cc = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+      return a + (b - a) * u + (cc - a) * v + (a - b - cc + d) * u * v;
+    };
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const nx = x / S - 0.5, ny = y / S - 0.5;
+        const r = Math.sqrt(nx * nx + ny * ny) * 2;             // 0 centre → 1 edge
+        // 4-octave fractal noise, domain-warped once for wispiness
+        const wx = x * 0.045 + vnoise(x * 0.02 + 9, y * 0.02) * 2.2;
+        const wy = y * 0.045 + vnoise(x * 0.02, y * 0.02 + 17) * 2.2;
+        let n = 0, amp = 0.5, fx = wx, fy = wy;
+        for (let o = 0; o < 4; o++) { n += vnoise(fx, fy) * amp; fx *= 2.03; fy *= 2.03; amp *= 0.5; }
+        // ragged radial falloff: noise modulates WHERE the edge sits
+        const edge = 0.62 + (n - 0.5) * 0.5;
+        const fall = Math.max(0, Math.min(1, (edge - r) / 0.34));
+        const dens = Math.pow(fall, 1.4) * (0.45 + 0.75 * n);
+        // soft top-left internal light so puffs read as lit volumes
+        const light = 0.82 + 0.35 * Math.max(0, -(nx * 0.7 + ny) );
+        const k = (y * S + x) * 4;
+        const lum = Math.min(255, 255 * light);
+        img.data[k] = lum; img.data[k + 1] = lum; img.data[k + 2] = lum;
+        img.data[k + 3] = Math.max(0, Math.min(255, dens * 255));
+      }
     }
-    // round mask so puffs don't show a square edge
-    ctx.globalCompositeOperation = "destination-in";
-    const m = ctx.createRadialGradient(64, 64, 10, 64, 64, 62);
-    m.addColorStop(0, "rgba(255,255,255,1)");
-    m.addColorStop(0.75, "rgba(255,255,255,0.8)");
-    m.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = m;
-    ctx.fillRect(0, 0, 128, 128);
+    ctx.putImageData(img, 0, 0);
     const tex = new THREE.CanvasTexture(c);
     tex.needsUpdate = true;
     return tex;
@@ -9387,45 +12617,64 @@ class FlowStudioViewer {
     const colors = new Float32Array(this.count * 3);
     const sizes = new Float32Array(this.count);
     const alphas = new Float32Array(this.count);
+    const rots = new Float32Array(this.count);
     const data = new Float32Array(this.count * 4);
+    const L = this.layout, F = this.flow;
     for (let i = 0; i < this.count; i++) {
-      data[i * 4] = Math.random();                       // path progress 0..1
-      data[i * 4 + 1] = Math.random() * 2;               // z offset (in front of cutaway)
-      data[i * 4 + 2] = Math.random() * Math.PI * 2;     // seed
-      data[i * 4 + 3] = Math.random();                   // lane 0..1 (position across flue depth)
+      data[i * 4] = Math.random() * Math.PI * 2;         // seed
+      data[i * 4 + 1] = Math.random();                   // z fraction across the front half
+      data[i * 4 + 2] = 0;                               // time spent OUTSIDE the body
+      data[i * 4 + 3] = Math.random() * Math.PI * 2;     // wander phase
+      // scatter the initial fill across the ENTIRE internal void — every
+      // pocket of air in the cross-section starts populated
+      if (F && F.interior.length) {
+        const id = F.interior[(Math.random() * F.interior.length) | 0];
+        positions[i * 3] = F.gx0 + (id % F.nx) * F.dx + (Math.random() - 0.5) * F.dx;
+        positions[i * 3 + 1] = F.gy0 + Math.floor(id / F.nx) * F.dy + (Math.random() - 0.5) * F.dy;
+      } else if (L) {
+        positions[i * 3] = L.sacX0 + Math.random() * (L.footX - L.sacX0);
+        positions[i * 3 + 1] = L.yBoreBot + Math.random() * L.B;
+      }
+      positions[i * 3 + 2] = 1 + data[i * 4 + 1] * Math.max(1, (L ? L.Wd : 8) / 2 - 2);
+      rots[i] = Math.random() * Math.PI * 2;
       sizes[i] = 1; alphas[i] = 0.9;
     }
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
     geometry.setAttribute("alpha", new THREE.BufferAttribute(alphas, 1));
+    geometry.setAttribute("rot", new THREE.BufferAttribute(rots, 1));
     // Custom shader: per-particle SIZE (smoke puffs expand as they travel
-    // and disperse) and per-particle ALPHA (they thin out as they grow) —
-    // PointsMaterial can't do either, and both are what make smoke read
-    // as smoke instead of gray dots.
+    // and disperse), per-particle ALPHA (they thin out as they grow), and
+    // per-particle ROTATION (each puff spins slowly — with the fractal
+    // sprite this is a large part of what makes the smoke read as real).
     const material = new THREE.ShaderMaterial({
-      uniforms: { map: { value: this.spriteTex } },
+      uniforms: { map: { value: this.spriteTex }, uTime: { value: 0 } },
       vertexShader: `
-        attribute float size; attribute float alpha;
-        varying float vA; varying vec3 vC;
+        attribute float size; attribute float alpha; attribute float rot;
+        varying float vA; varying vec3 vC; varying float vR;
         void main() {
-          vC = color; vA = alpha;
+          vC = color; vA = alpha; vR = rot;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = max(2.0, size * (900.0 / -mv.z));
+          gl_PointSize = max(2.0, size * (1150.0 / -mv.z));
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
-        uniform sampler2D map;
-        varying float vA; varying vec3 vC;
+        uniform sampler2D map; uniform float uTime;
+        varying float vA; varying vec3 vC; varying float vR;
         void main() {
-          vec4 t = texture2D(map, gl_PointCoord);
+          float ang = vR + uTime * 0.22 * sign(sin(vR * 7.0));
+          vec2 pc = gl_PointCoord - 0.5;
+          vec2 rc = vec2(pc.x * cos(ang) - pc.y * sin(ang), pc.x * sin(ang) + pc.y * cos(ang)) + 0.5;
+          vec4 t = texture2D(map, rc);
           float a = t.a * vA;
           if (a < 0.012) discard;
-          gl_FragColor = vec4(vC, a);
+          gl_FragColor = vec4(vC * t.rgb, a);
         }`,
       transparent: true, depthWrite: false, vertexColors: true,
     });
     this.particleSystem = new THREE.Points(geometry, material);
+    this.particleSystem.renderOrder = 20;   // over the wood, under the glass
     this.applyParticleStyle();
     this.scene.add(this.particleSystem);
     this.particleData = data;
@@ -9467,138 +12716,154 @@ class FlowStudioViewer {
   //     instability) and splitting alternately inside/outside at the edge
   //   • turbulence jitter scales with the actual Reynolds number
   updateAirflowSimulation(dt) {
-    if (!this.particleSystem || !this.layout) return;
+    if (!this.particleSystem || !this.layout || !this.flow) return;
     const { physics, timeScale } = this.getState();
     const L = this.layout;
     const t = performance.now() / 1000;
+    this.particleSystem.material.uniforms.uTime.value = t;
 
     const positions = this.particleSystem.geometry.attributes.position.array;
     const colors = this.particleSystem.geometry.attributes.color.array;
     const sizes = this.particleSystem.geometry.attributes.size.array;
     const alphas = this.particleSystem.geometry.attributes.alpha.array;
 
-    const vis = Math.max(2, (physics.U * 1000) / Math.max(1, timeScale)); // mm/s on screen
+    const vis = Math.max(2, (physics.U * 1000) / Math.max(1, timeScale)); // flue-core speed, mm/s on screen
     const fVis = physics.f0 / Math.max(1, timeScale);                     // visible flap rate, Hz
     const turb = physics.Re <= 800 ? 0 : Math.min(1.4, (physics.Re - 800) / 1800);
-
-    // Path stations (x, entering from the SAC mouth):
-    const x0 = L.sacX0;             // spawn
-    const x1 = L.rampStartX;        // SAC → ramp base
-    const x2 = L.rampTopX;          // ramp top (flush at the block) → flue
-    const x3 = 0;                   // flue exit = jet start
-    const x4 = L.lc;                // cutting edge
-    const x5 = L.footX;             // FULL sound chamber — air travels the whole flute
-    const x6 = L.footX + Math.max(25, L.B * 2.2); // exit plume past the open foot
-    const total = (x1 - x0) + (x2 - x1) + (x3 - x2) + (x4 - x3) + (x5 - x4) + (x6 - x5);
-
-    // Per-station speed as a fraction of the flue speed (continuity: the SAC
-    // is huge so flow there crawls; the flue is the choke point; the free jet
-    // convects at 0.4·U; air spreads again inside the bore).
-    const spd = (x) =>
-      x < x1 ? 0.12 : x < x2 ? 0.5 : x < x3 ? 1.0 : x < x4 ? 0.4 : x < x5 ? 0.25 : 0.16;
-
     const q = this.getStateQuality();
+    const zMax = Math.max(1.5, L.Wd / 2 - 1.5);
+    const step = Math.min(dt, 0.05);
+    const F = this.flow;
+
+    const respawn = (i) => {
+      // Every re-spawned puff enters right where the breath passage empties
+      // into the SAC — matching real airflow: breath in, then straight
+      // through the SAC → ramp → flue → across the window → split at the
+      // labium → down into the bore. No puff starts outside the mouth or
+      // scattered randomly through the interior; they all begin at the
+      // same doorway real air does.
+      positions[i * 3] = L.sacX0 + 1 + Math.random() * 2;
+      positions[i * 3 + 1] = L.sacMidY + (Math.random() - 0.5) * (L.bhW * 1.2 + 2);
+      this.particleData[i * 4 + 2] = 0;
+      this.particleData[i * 4 + 1] = Math.random();
+    };
 
     for (let i = 0; i < this.count; i++) {
-      let prog = this.particleData[i * 4];
-      const zOff = this.particleData[i * 4 + 1];
-      const seed = this.particleData[i * 4 + 2];
-      const lane = this.particleData[i * 4 + 3];
+      const seed = this.particleData[i * 4];
+      const zFrac = this.particleData[i * 4 + 1];
+      let outAge = this.particleData[i * 4 + 2];
+      const wander = this.particleData[i * 4 + 3];
 
-      let x = x0 + prog * total;
-      const v = vis * spd(x);
-      prog += (v * dt) / total;
-      if (prog >= 1) { prog = Math.random() * 0.06; x = x0 + prog * total; }
-      this.particleData[i * 4] = prog;
-      x = x0 + prog * total;
+      let x = positions[i * 3], y = positions[i * 3 + 1];
 
-      let y, quality = q.base;
-      const jetMid = L.yFlueFloor + L.h / 2; // jet spans flue floor → roof (y=0)
+      // ── the real field: −∇P sampled at the puff, scaled to the flue core
+      const fl = this.sampleFlow(x, y);
+      let vxp = fl.vx * vis, vyp = fl.vy * vis;
 
-      if (x < x1) {
-        // SAC interior — enter through the BREATH HOLE at the mouth end,
-        // then spread to fill the chamber under its ceiling
-        const ySac = Math.min(L.yBoreBot + 1 + lane * (L.B - 2) + Math.sin(t * 0.7 + seed) * 1.2, L.yWallBot - 0.4);
-        const yHole = L.sacMidY + (lane - 0.5) * Math.max(1, L.bhW - 1);
-        const spread = Math.min(1, (x - x0) / Math.max(1e-3, 0.22 * (x1 - x0)));
-        y = yHole + (ySac - yHole) * spread;
-        quality = Math.min(1, q.base + 0.1);
-      } else if (x < x2) {
-        // climbing the ramp — converge from the SAC band onto the jet band,
-        // rising through the exit opening into the flue entrance
-        const p = (x - x1) / Math.max(1e-3, x2 - x1);
-        const rampSurfY = L.yBoreBot + (L.yFlueFloor - L.yBoreBot) * p; // the ramp face itself
-        const yStart = L.yBoreBot + 1 + lane * (L.B - 2);
-        const gap = Math.max(0.3, (1 - p) * 0.5 * (yStart - L.yBoreBot) + p * (0.15 + 0.7 * lane) * L.h);
-        y = Math.min(rampSurfY + gap, L.yFloorTop - 0.15); // stay under the flue roof
-      } else if (x < x3) {
-        // flue channel — laminar core vs shear layers at the walls
-        const lanePos = L.yFlueFloor + 0.15 * L.h + lane * 0.7 * L.h;
-        const shear = Math.min(lane, 1 - lane) < 0.18 ? 1 : 0;
-        y = lanePos + shear * Math.sin(t * 30 + seed * 9) * turb * 0.25 * L.h;
-        quality = Math.max(0.15, q.base - shear * turb * 0.45);
-      } else if (x < x4) {
-        // free jet across the TSH — flapping at f0, instability growth
-        const xi = (x - x3) / Math.max(1e-3, L.lc);
-        const amp = Math.min(L.h * 2.6, 0.28 * L.h * Math.exp(2.3 * xi));
-        const wave = Math.sin(2 * Math.PI * fVis * t - xi * 2.4);
-        const jitter = turb * xi * (Math.sin(t * 41 + seed * 13) + Math.sin(t * 67 + seed * 7)) * 0.35;
-        y = jetMid + (lane - 0.5) * 0.5 * L.h + amp * wave + jitter;
-        quality = Math.max(0.15, q.base - turb * xi * 0.4);
-      } else {
-        // past the labium: split by flap phase — inside drives the resonator
-        const past = x - x4;
-        const phaseAtLabium = Math.sin(2 * Math.PI * fVis * t - 2.4 + seed * 0.15);
-        const boreMid = L.yWallBot - L.B / 2;
-        if (phaseAtLabium < 0 || seed % 1 < 0.65) {
-          if (x < x5) {
-            // into the bore — settle toward mid-bore, ride the mean flow
-            // down the ENTIRE sound chamber to the open foot
-            const settle = Math.min(1, past / (L.B * 1.2));
-            y = jetMid + settle * (boreMid - jetMid)
-              + Math.sin(t * 2.2 + seed + x * 0.02) * (1.2 + 0.3 * turb)
-              + (lane - 0.5) * settle * L.B * 0.45;
-          } else {
-            // exit plume: out the open foot, spreading and drifting up
-            const past2 = x - x5;
-            const g2 = Math.min(1, past2 / Math.max(1, x6 - x5));
-            y = boreMid + (lane - 0.5) * L.B * (0.5 + 1.6 * g2) + past2 * 0.18
-              + Math.sin(t * 3 + seed) * (0.8 + 2.5 * g2);
-            quality = Math.max(0.25, quality - 0.15 * g2);
-          }
-        } else {
-          // sheds outside — rises away above the window, then recycles
-          y = jetMid + past * 0.55 + Math.sin(t * 5 + seed) * 0.6 * (1 + turb);
-          quality = Math.max(0.2, q.base - 0.25);
-          if (past > L.lc * 7) { this.particleData[i * 4] = Math.random() * 0.05; }
+      // ── the jet: blended over the potential field by core weight. In
+      // the core the parcel moves like real jet fluid — across the whole
+      // window at ~U, riding the flapping centreline. The split at the
+      // labium is GEOMETRIC, exactly as in the real instrument: whatever
+      // arrives below the edge tip ducks under into the bore, the rest
+      // crosses over the nose and sheds. The flapping centreline
+      // alternates how much of the jet each phase delivers below the tip
+      // — the in/out pumping you see on a smoke-tested flute.
+      const jet = this.jetVelocity(x, y, t, fVis, vis, physics.phaseLagCoeff, turb);
+      if (jet) {
+        vxp = vxp * (1 - jet.w) + jet.vx * jet.w;
+        vyp = vyp * (1 - jet.w) + jet.vy * jet.w;
+        if (x > L.lc - 0.3 && x < L.lc + 2 * L.h && jet.w > 0.08
+            && jet.yJet < L.yFlueFloor + L.tipHeight + 0.15 * L.h) {
+          // INWARD phase: the jet deflects as a COLUMN — when its
+          // centreline dips to the edge tip, the bulk of the column pours
+          // under into the bore, fringe fluid included.
+          vyp -= vis * 0.55;
+        }
+      }
+      // ── the throat: between the edge tip and the bore ceiling the raw
+      // potential points UP toward the window's ambient, but real air that
+      // has poured under the edge carries its momentum on down — model
+      // that as a persistent carry until the parcel reaches the bore.
+      {
+        const tipBand = L.yFlueFloor + L.tipHeight + 0.15 * L.h;
+        if (x > L.lc - 0.2 && x < L.lc + 4 * L.h && y < tipBand && y > L.yWallBot + 0.1) {
+          vyp -= vis * 0.6;
+          if (vxp < vis * 0.25) vxp = vis * 0.25;   // keep moving under the nose
         }
       }
 
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = 0.25 + (zOff / 2) * Math.max(0.5, L.Wd / 2 - 0.5); // inside the chamber's front half
+      // ── turbulence: cheap curl-flavored noise, stronger with real Re
+      // and stronger again once the puff is free of the body
+      const outside = fl.t === 2 || y > L.yFloorTop + 1.5 || x > L.footX + 1;
+      const tAmp = vis * (0.05 + 0.11 * turb) * (outside ? 2.2 : 1);
+      vxp += Math.sin(y * 0.55 + t * 5.1 + seed) * tAmp;
+      vyp += Math.sin(x * 0.38 - t * 4.3 + seed * 1.7) * tAmp;
 
-      // per-particle size/alpha: smoke puffs stay small and dense while
-      // confined, then EXPAND and thin out once free of the flue — the
-      // expansion+fade is what sells the smoke look
-      if (this.smoke) {
-        if (x < x3) { sizes[i] = 1.5 + 0.3 * Math.sin(seed * 7); alphas[i] = 0.30; }
-        else if (x < x4) { const xi2 = (x - x3) / Math.max(1e-3, L.lc); sizes[i] = 1.6 + 1.6 * xi2; alphas[i] = 0.30; }
-        else { const g3 = Math.min(1, (x - x4) / 70); sizes[i] = 2.6 + 5.5 * g3 + 0.5 * Math.sin(seed * 5); alphas[i] = Math.max(0.05, 0.26 * (1 - g3) + 0.05); }
+      if (outside) {
+        // free smoke: buoyant rise + lateral spread, aging toward respawn
+        outAge += step;
+        vyp += vis * 0.16 * Math.min(2.2, outAge * 1.4);
+        vxp += Math.sin(t * 1.7 + wander) * vis * 0.05 * outAge;
       } else {
-        // tracer: big enough that the sprite's bright core actually lands
-        // on pixels (tiny textured points sample the sprite's transparent
-        // edge and vanish — the cause of the earlier invisible particles)
-        sizes[i] = 2.3; alphas[i] = 1.0;
+        outAge = Math.max(0, outAge - step * 2);
       }
 
+      // ── advect, with wall handling against the SAME grid the wood came
+      // from. The step is SUB-DIVIDED so no puff can move more than one
+      // cell at a time — a fast puff can no longer tunnel through a thin
+      // wall (the splitting-edge nose, the bird's lip) between frames.
+      // Blocked sub-steps try sliding along each axis (tangent slip), so
+      // puffs hug real surfaces.
+      {
+        const disp = Math.hypot(vxp, vyp) * step;
+        const maxSub = Math.max(1e-3, 0.85 * Math.min(F.dx, F.dy));
+        const nSub = Math.min(6, Math.max(1, Math.ceil(disp / maxSub)));
+        const sdt = step / nSub;
+        for (let ss = 0; ss < nSub; ss++) {
+          let nxp = x + vxp * sdt, nyp = y + vyp * sdt;
+          if (this.isSolidCell(nxp, nyp)) {
+            if (!this.isSolidCell(nxp, y)) nyp = y;
+            else if (!this.isSolidCell(x, nyp)) nxp = x;
+            else { break; }
+          }
+          x = nxp; y = nyp;
+        }
+      }
+      // safety net: a puff that still ended up inside wood (stale field
+      // right after a geometry rebuild) is reborn rather than left stuck
+      if (this.isSolidCell(x, y)) { respawn(i); continue; }
+
+      const dead = outAge > 2.6 || x < F.gx0 + 1 || x > F.gx0 + (F.nx - 1) * F.dx - 1
+        || y < F.gy0 + 1 || y > F.gy0 + (F.ny - 1) * F.dy - 1;
+      if (dead) { respawn(i); this.particleData[i * 4 + 2] = 0; continue; }
+      this.particleData[i * 4 + 2] = outAge;
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = y;
+      // sandwiched between the wood section (z=0) and the glass pane:
+      // gentle z wander, never leaving the covered half-chamber
+      const zW = Math.sin(t * 0.6 + wander) * 0.6;
+      positions[i * 3 + 2] = Math.max(0.8, Math.min(zMax, 1 + zFrac * (zMax - 1) + zW));
+
+      // quality: composite score, dinged by local turbulence and by
+      // being spilled outside instead of driving the resonator
+      let quality = Math.max(0.12, Math.min(1, q.base - 0.22 * turb * fl.rel - (outside ? 0.18 : 0)));
+
       if (this.smoke) {
-        // smoke: soft grey-white, gently tinted by local quality
+        // confined smoke stays small and dense; free smoke billows and
+        // thins — growth driven by the puff's outside age
+        const grow = Math.min(1, outAge / 1.6);
+        const inFlue = x > -L.flueLen - 2 && x < L.lc + 1 && y > L.yFlueFloor - 1;
+        sizes[i] = (inFlue ? 1.5 : 2.2) + 0.5 * Math.sin(seed * 7) + 6.5 * grow;
+        alphas[i] = Math.max(0.04, (inFlue ? 0.34 : 0.27) * (1 - grow * 0.85));
         const g = 0.55 + 0.35 * quality;
-        colors[i*3] = g * 0.96; colors[i*3+1] = g; colors[i*3+2] = g * 1.05;
-      } else if (quality > 0.72) { colors[i*3] = 0.1;  colors[i*3+1] = 0.9;  colors[i*3+2] = 0.3;  }
-      else if (quality > 0.45) { colors[i*3] = 0.95; colors[i*3+1] = 0.7;  colors[i*3+2] = 0.1;  }
-      else { colors[i*3] = 0.95; colors[i*3+1] = 0.2;  colors[i*3+2] = 0.15; }
+        colors[i * 3] = g * 0.96; colors[i * 3 + 1] = g; colors[i * 3 + 2] = g * 1.05;
+      } else {
+        sizes[i] = 2.3; alphas[i] = 1.0;
+        if (quality > 0.72) { colors[i * 3] = 0.1; colors[i * 3 + 1] = 0.9; colors[i * 3 + 2] = 0.3; }
+        else if (quality > 0.45) { colors[i * 3] = 0.95; colors[i * 3 + 1] = 0.7; colors[i * 3 + 2] = 0.1; }
+        else { colors[i * 3] = 0.95; colors[i * 3 + 1] = 0.2; colors[i * 3 + 2] = 0.15; }
+      }
     }
 
     this.particleSystem.geometry.attributes.position.needsUpdate = true;
@@ -9638,11 +12903,12 @@ class FlowStudioViewer {
     // per-arrow advection state: progress along the path, lane, seed —
     // the arrows MOVE with the flow (like an animated wind map), pointing
     // in their local flow direction as they travel.
-    this.vecData = new Float32Array(this.vecMax * 3);
+    this.vecData = new Float32Array(this.vecMax * 4);
     for (let i = 0; i < this.vecMax; i++) {
-      this.vecData[i * 3] = Math.random();          // progress
-      this.vecData[i * 3 + 1] = Math.random();      // lane
-      this.vecData[i * 3 + 2] = Math.random() * 10; // seed
+      this.vecData[i * 4] = NaN;                     // x (NaN = respawn on first tick)
+      this.vecData[i * 4 + 1] = 0;                   // y
+      this.vecData[i * 4 + 2] = Math.random() * 10;  // seed
+      this.vecData[i * 4 + 3] = 0;                   // outside age
     }
     const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.92 });
     this.vecMesh = new THREE.InstancedMesh(geo, mat, this.vecMax);
@@ -9661,67 +12927,84 @@ class FlowStudioViewer {
   setVectorsVisible(on) { if (this.vecMesh) this.vecMesh.visible = !!on; }
 
   updateVectorField(t, dt) {
-    if (!this.vecMesh || !this.vecMesh.visible || !this.layout) return;
+    if (!this.vecMesh || !this.vecMesh.visible || !this.layout || !this.flow) return;
     const { physics, timeScale } = this.getState();
     const L = this.layout;
+    const F = this.flow;
     const fVis = physics.f0 / Math.max(1, timeScale);
     const vis = Math.max(2, (physics.U * 1000) / Math.max(1, timeScale));
-    const st = this.pathStations();
-    const boreMid = (L.yWallBot + L.yBoreBot) / 2;
-    const sacMid = L.sacMidY;
-    const rampRunSafe = Math.max(1e-3, L.rampRun);
+    const turb = physics.Re <= 800 ? 0 : Math.min(1.4, (physics.Re - 800) / 1800);
+    const step = Math.min(dt, 0.05);
+    const spawnX0 = F.gx0 + 2, spawnX1 = L.sacX0 - L.bhL - 2;
 
     for (let i = 0; i < this.vecMax; i++) {
-      let prog = this.vecData[i * 3];
-      const lane = this.vecData[i * 3 + 1];
-      const seed = this.vecData[i * 3 + 2];
-      let x = st.x0 + prog * st.total;
-      // ADVECT: same speed model as the particles, so the arrows ride the
-      // flow — an animated wind map, each dart pointing where it's going.
-      prog += (vis * st.spd(x) * dt) / st.total;
-      if (prog >= 1) prog = Math.random() * 0.05;
-      this.vecData[i * 3] = prog;
-      x = st.x0 + prog * st.total;
+      let x = this.vecData[i * 4], y = this.vecData[i * 4 + 1];
+      const seed = this.vecData[i * 4 + 2];
+      let outAge = this.vecData[i * 4 + 3];
 
-      let y, dx = 1, dy = 0, rel;
-      if (x < st.x1) {
-        y = sacMid + (lane - 0.5) * L.B * 0.75;
-        rel = 0.12;
-      } else if (x < st.x2) {
-        const p = (x - st.x1) / rampRunSafe;
-        y = L.yBoreBot + p * (L.yFlueFloor - L.yBoreBot) + 2.2;
-        dy = (L.yFlueFloor - L.yBoreBot) / rampRunSafe;
-        rel = 0.3 + 0.35 * p;
-      } else if (x < st.x3) {
-        y = L.yFlueFloor + L.h / 2;
-        rel = 1;
-      } else if (x < st.x4) {
-        const xi = (x - st.x3) / Math.max(1e-3, L.lc);
-        const ph = 2 * Math.PI * fVis * t - xi * 2.4;
-        y = L.yFlueFloor + L.h / 2 + Math.sin(ph) * 0.3 * L.h * Math.exp(2.3 * xi) * 0.35;
-        dy = Math.cos(ph) * 0.4 * Math.min(1, xi * 2.2);
-        rel = 0.95 - 0.25 * xi;
-      } else if (x < st.x5) {
-        y = boreMid + (lane - 0.5) * L.B * 0.45 + Math.sin(t * 1.5 + seed) * 0.8;
-        dy = 0.06 * Math.cos(t * 1.5 + seed);
-        rel = 0.25;
-      } else {
-        const g2 = Math.min(1, (x - st.x5) / Math.max(1, st.x6 - st.x5));
-        y = boreMid + (lane - 0.5) * L.B * (0.5 + 1.4 * g2) + (x - st.x5) * 0.18;
-        dy = 0.22 + 0.15 * g2;
-        rel = Math.max(0.06, 0.18 * (1 - g2));
+      const bad = !isFinite(x) || outAge > 1.8
+        || x < F.gx0 + 1 || x > F.gx0 + (F.nx - 1) * F.dx - 1
+        || y < F.gy0 + 1 || y > F.gy0 + (F.ny - 1) * F.dy - 1;
+      if (bad) {
+        // most darts re-enter at the breath hole; some reseed inside the
+        // void so the whole chamber stays mapped
+        if (Math.random() < 0.7 || !F.interior.length) {
+          x = spawnX0 + Math.random() * Math.max(2, spawnX1 - spawnX0);
+          y = L.sacMidY + (Math.random() - 0.5) * (L.bhW * 1.4 + 3);
+        } else {
+          const id = F.interior[(Math.random() * F.interior.length) | 0];
+          x = F.gx0 + (id % F.nx) * F.dx;
+          y = F.gy0 + Math.floor(id / F.nx) * F.dy;
+        }
+        outAge = 0;
       }
 
-      const len = 2.4 + 9.5 * Math.min(1, rel);
-      const w = 0.8 + 1.1 * Math.min(1, rel);
-      this._vd.set(dx, dy, 0).normalize();
+      // the same real field the smoke rides — arrows ARE the field
+      const fl = this.sampleFlow(x, y);
+      let vxp = fl.vx * vis, vyp = fl.vy * vis;
+      const jet = this.jetVelocity(x, y, t, fVis, vis, physics.phaseLagCoeff, turb);
+      if (jet) {
+        vxp = vxp * (1 - jet.w) + jet.vx * jet.w;
+        vyp = vyp * (1 - jet.w) + jet.vy * jet.w;
+      }
+      const outside = fl.t === 2 || y > L.yFloorTop + 1.5 || x > L.footX + 1;
+      if (outside) { outAge += step; vyp += vis * 0.14 * Math.min(2, outAge * 1.5); }
+
+      let nxp = x, nyp = y;
+      {
+        const disp = Math.hypot(vxp, vyp) * step;
+        const maxSub = Math.max(1e-3, 0.85 * Math.min(F.dx, F.dy));
+        const nSub = Math.min(6, Math.max(1, Math.ceil(disp / maxSub)));
+        const sdt = step / nSub;
+        for (let ss = 0; ss < nSub; ss++) {
+          let tx = nxp + vxp * sdt, ty = nyp + vyp * sdt;
+          if (this.isSolidCell(tx, ty)) {
+            if (!this.isSolidCell(tx, nyp)) ty = nyp;
+            else if (!this.isSolidCell(nxp, ty)) tx = nxp;
+            else break;
+          }
+          nxp = tx; nyp = ty;
+        }
+        if (this.isSolidCell(nxp, nyp)) outAge = 99;  // reborn next tick
+      }
+      this.vecData[i * 4] = nxp;
+      this.vecData[i * 4 + 1] = nyp;
+      this.vecData[i * 4 + 3] = outAge;
+      this.vecData[i * 4 + 3] = outAge;
+
+      const rel = Math.min(1, Math.max(fl.rel, jet ? jet.w : 0));
+      const len = 2.2 + 9.5 * rel;
+      const w = 0.8 + 1.1 * rel;
+      this._vd.set(vxp, vyp, 0);
+      if (this._vd.lengthSq() < 1e-8) this._vd.set(1, 0, 0);
+      this._vd.normalize();
       this._vq.setFromUnitVectors(this._Y, this._vd);
-      this._vp.set(x, y, Math.min(L.Wd * 0.25, 3)); // inside the chamber's front half
+      this._vp.set(nxp, nyp, Math.min(L.Wd * 0.25, 3));
       this._vs.set(w, len, w);
       this._vm.compose(this._vp, this._vq, this._vs);
       this.vecMesh.setMatrixAt(i, this._vm);
       // weather scale: hue sweeps blue (slow) → red (fast)
-      this._vc.setHSL(0.62 * (1 - Math.min(1, rel)), 1.0, 0.55);
+      this._vc.setHSL(0.62 * (1 - rel), 1.0, 0.55);
       this.vecMesh.setColorAt(i, this._vc);
     }
     this.vecMesh.count = this.vecMax;
@@ -9731,21 +13014,32 @@ class FlowStudioViewer {
 
   updateScreenSpaceLabels() {
     if (!this.trackingPoints.ramp || !this.meshGroup) return;
-    const { params } = this.getState();
+    const { params, dimVis } = this.getState();
+    const L = this.layout;
     const widthHalf = this.container.clientWidth / 2;
     const heightHalf = this.container.clientHeight / 2;
-    const labels = [
-      { el: this.labelEls.ramp,   pos: this.trackingPoints.ramp,   text: `Ramp: ${params.rampAngle}\u00B0` },
-      { el: this.labelEls.flue,   pos: this.trackingPoints.flue,   text: `Flue: ${params.flueDepthMm.toFixed(1)}mm` },
-      { el: this.labelEls.tsh,    pos: this.trackingPoints.tsh,    text: `TSH: ${params.tshLengthMm.toFixed(1)}mm` },
-      { el: this.labelEls.fipple, pos: this.trackingPoints.fipple, text: `Fipple: ${params.fippleAngle}\u00B0` },
-    ];
-    for (const { el, pos, text } of labels) {
+    const masterOff = dimVis && dimVis.master === false;
+    const texts = {
+      ramp:    `Ramp: ${params.rampAngle}\u00B0${params.rampCurve > 0.01 ? ` \u00B7 scoop ${params.rampCurve.toFixed(2)}` : ""}`,
+      sacExit: `SAC exit: ${params.tshLengthMm.toFixed(1)}mm`,
+      flue:    L ? `Flue: ${L.flueLen.toFixed(1)}\u00D7${L.h.toFixed(1)}mm` : `Flue: ${params.flueDepthMm.toFixed(1)}mm`,
+      tsh:     L ? `TSH: ${L.lc.toFixed(1)}\u00D7${L.Wd.toFixed(1)}mm` : `TSH: ${params.tshLengthMm.toFixed(1)}mm`,
+      fipple:  `Fipple: ${params.fippleAngle}\u00B0`,
+      tip:     L ? `Tip: \u2191${L.tipHeight.toFixed(2)}mm \u00B7 flat ${L.tipFlat.toFixed(2)}mm` : "",
+      wall:    L ? `Wall: ${L.T.toFixed(1)}mm` : "",
+      backset: L ? `Backset: ${L.bk.toFixed(1)}mm` : "",
+      chimney: L ? `Chimney: ${L.chim.toFixed(1)}mm` : "",
+    };
+    for (const { key } of NEST_DIM_KEYS) {
+      const el = this.labelEls[key];
       if (!el) continue;
+      const pos = this.trackingPoints[key];
+      const hidden = masterOff || !pos || !texts[key] || (dimVis && dimVis.keys && dimVis.keys[key] === false);
+      if (hidden) { el.style.display = "none"; continue; }
       const p = pos.clone().project(this.camera);
       el.style.transform = `translate(${p.x * widthHalf + widthHalf}px, ${-p.y * heightHalf + heightHalf}px)`;
       el.style.display = p.z < 1 ? "block" : "none";
-      el.textContent = text;
+      el.textContent = texts[key];
     }
   }
 
@@ -9761,7 +13055,16 @@ class FlowStudioViewer {
   animate() {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(() => this.animate());
-    const dt = Math.min(0.05, this.clock.getDelta());
+    // Same as the other viewers: pages are hidden via display:none, not
+    // unmounted, so skip the (particle-physics-heavy) update entirely while
+    // this one can't be seen — this loop is the most expensive of the
+    // three by far once particle counts run into the thousands.
+    // Timer.update() must run every frame regardless (hidden or not) so its
+    // internal delta tracking stays correct — skipping it while hidden is
+    // what used to cause a big dt spike the moment the page came back.
+    this.timer.update();
+    if (this.container.clientWidth === 0) return;
+    const dt = Math.min(0.05, this.timer.getDelta());
     this.updateAirflowSimulation(dt);
     this.updateVectorField(performance.now() / 1000, dt);
     this.updateScreenSpaceLabels();
@@ -9771,6 +13074,7 @@ class FlowStudioViewer {
 
   dispose() {
     this.disposed = true;
+    if (this._fieldTimer) { clearTimeout(this._fieldTimer); this._fieldTimer = null; }
     if (this.raf) cancelAnimationFrame(this.raf);
     window.removeEventListener("resize", this.onResize);
     if (this.ro) this.ro.disconnect();
@@ -9865,16 +13169,22 @@ function FlowStudioPage() {
 
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
-  const labelRefs = { ramp: useRef(null), flue: useRef(null), tsh: useRef(null), fipple: useRef(null) };
+  const labelRefs = useRef({});
+  const [dimVis, setDimVis] = useState(loadNestDimVis);
+  useEffect(() => {
+    const onVis = () => setDimVis(loadNestDimVis());
+    window.addEventListener("naf-dimvis-updated", onVis);
+    return () => window.removeEventListener("naf-dimvis-updated", onVis);
+  }, []);
   const stateRef = useRef(null);
-  stateRef.current = { design: designEff, params, physics, score, pressurePa, timeScale, particleCount, smokeMode, showVectors };
+  stateRef.current = { design: designEff, params, physics, score, pressurePa, timeScale, particleCount, smokeMode, showVectors, dimVis };
 
   useEffect(() => {
     if (!containerRef.current) return;
     const viewer = new FlowStudioViewer(
       containerRef.current,
       () => stateRef.current,
-      { ramp: labelRefs.ramp.current, flue: labelRefs.flue.current, tsh: labelRefs.tsh.current, fipple: labelRefs.fipple.current }
+      labelRefs.current
     );
     viewerRef.current = viewer;
 
@@ -9887,6 +13197,11 @@ function FlowStudioPage() {
       if (!paramsDirtyRef.current) setParams(paramsFromDesign(d));
     };
     window.addEventListener("naf-design-updated", onDesign);
+    // The designer publishes in ITS mount effect, which runs before this
+    // one — so on a fresh load the event has already fired by the time we
+    // subscribe. Without this immediate pull, the Flow tab sat on the
+    // built-in F#4 default until the user happened to change something.
+    onDesign();
     return () => {
       window.removeEventListener("naf-design-updated", onDesign);
       viewer.dispose();
@@ -9943,19 +13258,27 @@ function FlowStudioPage() {
   };
 
   const optimizeAll = () => {
-    // grid-search pressure × flue depth × cut-up against the FULL score
-    // (root + top-note drive, turbulence, geometry, tuning) for the
-    // flute's current note and chamber
+    // coordinate-descent over EVERY nest control + breath pressure against
+    // the FULL score (root + top-note drive, turbulence, cut-up, edge
+    // offset, flue development, ramp, chimney, supply, tuning) for the
+    // flute's current note, chamber and breath hole
     const best = optimizeEverything(design);
     if (!best) return;
     setPressurePa(best.P);
     paramsDirtyRef.current = true;
     setParams(p => ({
       ...p,
-      flueDepthMm: +(best.h * 25.4).toFixed(2),
-      tshLengthMm: +(best.lc * 25.4).toFixed(1),
+      flueDepthMm: +(best.flueDepthIn * 25.4).toFixed(2),
+      tshLengthMm: +(best.shL * 25.4).toFixed(1),
+      flueLenMm:   +(best.flueLengthIn * 25.4).toFixed(1),
+      tipHeightMm: +(best.tipHeightIn * 25.4).toFixed(2),
+      rampAngle:   Math.round(best.rampAngleDeg),
+      rampCurve:   +best.rampCurve.toFixed(2),
+      chimneyMm:   +(best.chimneyIn * 25.4).toFixed(2),
+      backsetMm:   +(best.backsetIn * 25.4).toFixed(1),
+      fippleAngle: Math.round(best.fippleAngleDeg),
     }));
-    setStatus(`Best overall for ${design.keyName || "this key"}: ${best.P} Pa, flue ${(best.h * 25.4).toFixed(2)} mm, cut-up ${(best.lc * 25.4).toFixed(1)} mm → predicted score ${best.sc}/100 (balances root AND top-note drive).`);
+    setStatus(`Best overall for ${design.keyName || "this key"} → predicted ${best.sc}/100: ${best.P} Pa · flue ${(best.flueDepthIn*25.4).toFixed(2)}×${(best.flueLengthIn*25.4).toFixed(1)} mm · cut-up ${(best.shL*25.4).toFixed(1)} mm · tip ${(best.tipHeightIn*25.4).toFixed(2)} mm · ramp ${Math.round(best.rampAngleDeg)}° (scoop ${best.rampCurve.toFixed(2)}) · chimney ${(best.chimneyIn*25.4).toFixed(2)} mm · backset ${(best.backsetIn*25.4).toFixed(1)} mm · fipple ${Math.round(best.fippleAngleDeg)}° — every nest control searched against the Crafting-Dimensions model.`);
   };
 
   const doSaveNest = () => {
@@ -10008,10 +13331,10 @@ function FlowStudioPage() {
 
   // ── styles (slate theme, matches the original fluteview look) ──
   const S = {
-    page: { display: "flex", gap: 12, height: "100%", minHeight: 480, color: "#e2e8f0", fontFamily: "system-ui, sans-serif" },
-    canvasWrap: { position: "relative", flex: 1, minWidth: 0, background: "#030712", borderRadius: 12, overflow: "hidden", border: "1px solid #1e293b" },
+    page: { display: "flex", flexDirection: "column", gap: 12, minHeight: 480, color: "#e2e8f0", fontFamily: "system-ui, sans-serif" },
+    canvasWrap: { position: "relative", width: "100%", height: "56vh", minHeight: 340, maxHeight: 640, flexShrink: 0, background: "#030712", borderRadius: 12, overflow: "hidden", border: "1px solid #1e293b" },
     label: { position: "absolute", top: 0, left: 0, display: "none", pointerEvents: "none", background: "rgba(2,6,23,0.85)", border: "1px solid #334155", color: "#7dd3fc", fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 6, whiteSpace: "nowrap", transformOrigin: "0 0" },
-    side: { width: 320, flexShrink: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 2 },
+    side: { width: "100%", display: "flex", flexDirection: "column", gap: 10 },
     card: { background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: 12 },
     h: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#38bdf8", marginBottom: 8 },
     row: { display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 12, padding: "2px 0", gap: 8 },
@@ -10032,14 +13355,37 @@ function FlowStudioPage() {
   const holes = design.holes || [];
   const fmtC = (c) => `${c >= 0 ? "+" : ""}${c.toFixed(0)}\u00A2`;
 
+  // ── Collapsible control sections — each card tucks under its own header
+  // so the control stack takes less room when a section isn't in use.
+  const [openSections, setOpenSections] = useState({
+    design: true, breath: true, nest: true, particles: true,
+    dims: true, aero: true, cfd: true, quality: true, library: true,
+  });
+  const toggleSection = (id) => setOpenSections(o => ({ ...o, [id]: !o[id] }));
+  const Section = ({ id, title, cardStyle, children }) => {
+    const isOpen = openSections[id];
+    return (
+      <div style={cardStyle || S.card}>
+        <button onClick={() => toggleSection(id)} style={{
+          display: "flex", alignItems: "center", gap: 7, width: "100%",
+          background: "none", border: "none", padding: 0, margin: 0,
+          marginBottom: isOpen ? 8 : 0, cursor: "pointer", textAlign: "left", font: "inherit",
+        }}>
+          <span style={{ color: "#38bdf8", fontSize: 11, flexShrink: 0 }}>{isOpen ? "\u25BE" : "\u25B8"}</span>
+          <span style={{ ...S.h, marginBottom: 0 }}>{title}</span>
+        </button>
+        {isOpen && children}
+      </div>
+    );
+  };
+
   return (
     <div style={S.page}>
       <div style={S.canvasWrap}>
         <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        <div ref={labelRefs.ramp} style={S.label} />
-        <div ref={labelRefs.flue} style={S.label} />
-        <div ref={labelRefs.tsh} style={S.label} />
-        <div ref={labelRefs.fipple} style={S.label} />
+        {NEST_DIM_KEYS.map(({ key }) => (
+          <div key={key} ref={el => { labelRefs.current[key] = el; }} style={S.label} />
+        ))}
         <div style={{ position: "absolute", top: 10, left: 10, display: "flex", gap: 6 }}>
           <button onClick={() => viewerRef.current && viewerRef.current.frame("nest")}
             style={{ ...S.btn("#1e293b", "#7dd3fc"), width: "auto", marginTop: 0, padding: "6px 10px" }}>🔍 Nest</button>
@@ -10062,8 +13408,7 @@ function FlowStudioPage() {
 
       <div style={S.side}>
         {/* ── Design source ── */}
-        <div style={S.card}>
-          <div style={S.h}>Flute design (live from designer)</div>
+        <Section id="design" title="Flute design (live from designer)">
           <div style={S.row}><span style={S.k}>Key</span><span style={S.v}>{design.keyName || "—"} · {(design.rootFreq || 0).toFixed(2)} Hz</span></div>
           <div style={S.row}><span style={S.k}>Bore</span><span style={S.v}>{design.bore}&Prime;</span></div>
           <div style={S.row}><span style={S.k}>Sound chamber</span><span style={S.v}>{(design.L || 0).toFixed(2)}&Prime;</span></div>
@@ -10082,11 +13427,10 @@ function FlowStudioPage() {
             </div>
           )}
           <button onClick={syncFromDesigner} style={S.btn("#0c4a6e", "#e0f2fe")}>🔄 Sync from Flute Designer</button>
-        </div>
+        </Section>
 
         {/* ── Breath & time ── */}
-        <div style={S.card}>
-          <div style={S.h}>Breath &amp; time</div>
+        <Section id="breath" title="Breath &amp; time">
           <div style={S.sLabel}><span>Breath pressure</span><b>{pressurePa} Pa</b></div>
           <input type="range" min={100} max={1200} step={10} value={pressurePa}
             onChange={e => setPressurePa(+e.target.value)} style={S.slider} />
@@ -10095,11 +13439,10 @@ function FlowStudioPage() {
           <input type="range" min={50} max={2000} step={25} value={timeScale}
             onChange={e => setTimeScale(+e.target.value)} style={S.slider} />
           <button onClick={findPressure} style={S.btn("#164e63", "#a5f3fc")}>🌬 Find best breath pressure</button>
-        </div>
+        </Section>
 
         {/* ── Nest geometry ── */}
-        <div style={S.card}>
-          <div style={S.h}>Nest geometry (what-if overrides)</div>
+        <Section id="nest" title="Nest geometry (what-if overrides)">
           <div style={S.sLabel}><span>Ramp angle</span><b>{params.rampAngle}&deg;</b></div>
           <input type="range" min={15} max={60} step={1} value={params.rampAngle}
             onChange={e => setParam("rampAngle", +e.target.value)} style={S.slider} />
@@ -10138,13 +13481,12 @@ function FlowStudioPage() {
             onChange={e => setParam("tipHeightMm", +e.target.value)} style={S.slider} />
           <button onClick={optimize} style={S.btn("#065f46", "#d1fae5")}>⚡ Optimize nest for this key</button>
           <button onClick={optimizeAll} style={S.btn("#7c2d12", "#fed7aa")}>⭐ Find best overall settings</button>
-        </div>
+        </Section>
 
         {/* ── Particles ── */}
-        <div style={S.card}>
-          <div style={S.h}>Particles</div>
-          <div style={S.sLabel}><span>Particle count</span><b>{particleCount}</b></div>
-          <input type="range" min={100} max={2500} step={50} value={particleCount}
+        <Section id="particles" title="Particles">
+          <div style={S.sLabel}><span>Particle count</span><b>{particleCount}{particleCount > 6000 && <span style={{color:"#f59e0b",fontWeight:400}}> (heavier on frame rate)</span>}</b></div>
+          <input type="range" min={100} max={25000} step={250} value={particleCount}
             onChange={e => setParticleCount(+e.target.value)} style={S.slider} />
           <button onClick={() => setSmokeMode(s => !s)}
             style={S.btn(smokeMode ? "#475569" : "#1e293b", smokeMode ? "#f8fafc" : "#94a3b8")}>
@@ -10154,11 +13496,27 @@ function FlowStudioPage() {
             style={S.btn(showVectors ? "#164e63" : "#1e293b", showVectors ? "#a5f3fc" : "#94a3b8")}>
             {showVectors ? "🧭 Flow vectors: ON" : "🧭 Flow vectors: OFF"}
           </button>
-        </div>
+        </Section>
+
+        {/* ── Dimension labels ── */}
+        <Section id="dims" title="Dimension labels" cardStyle={{marginTop:10,padding:"8px 10px",background:"#0b1220",border:"1px solid #1e293b",borderRadius:8}}>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11.5,fontWeight:700,color:"#7dd3fc",cursor:"pointer"}}>
+            <input type="checkbox" checked={dimVis.master}
+              onChange={e => { const v = { ...dimVis, master: e.target.checked }; setDimVis(v); saveNestDimVis(v); }}
+              style={{accentColor:"#7dd3fc"}}/>
+            📐 Dimension labels
+          </label>
+          {dimVis.master && (
+            <NestDimTogglePanel dimVis={dimVis} setDimVis={setDimVis}
+              accent="#7dd3fc" border="#1e293b" text="#cbd5e1" mutedC="#64748b"/>
+          )}
+          <div style={{fontSize:9,color:"#64748b",marginTop:5,lineHeight:1.35}}>
+            Shared with the Flute page 3D preview — toggles here show and hide the same labels there.
+          </div>
+        </Section>
 
         {/* ── Aeroacoustics ── */}
-        <div style={S.card}>
-          <div style={S.h}>Aeroacoustics</div>
+        <Section id="aero" title="Aeroacoustics">
           <div style={S.row}><span style={S.k}>Jet velocity</span><span style={S.v}>{physics.U.toFixed(1)} m/s</span></div>
           <div style={S.row}><span style={S.k}>Air use</span><span style={S.v}>{physics.QLpm.toFixed(1)} L/min</span></div>
           <div style={S.row}><span style={S.k}>Reynolds (flue)</span><span style={S.v}>{Math.round(physics.Re)}</span></div>
@@ -10171,11 +13529,56 @@ function FlowStudioPage() {
           <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>
             Open-open pipe with 0.61&middot;a end corrections; &theta; = U/(f&middot;l&#8342;) per flue-pipe theory (optimal 5–10, jet waves convect at 0.4&middot;U).
           </div>
-        </div>
+        </Section>
+
+        {/* ── External CFD export ── */}
+        <Section id="cfd" title="External CFD analysis">
+          <div style={{ fontSize: 10.5, color: "#94a3b8", lineHeight: 1.5, marginBottom: 8 }}>
+            Downloads the current nest's exact dimensions as a JSON file — drop it next to <code>build_air_volume.py</code> from the CFD pipeline package and point the script at it to build a real 3D air-volume mesh for OpenFOAM from these numbers, instead of hand-editing the script.
+          </div>
+          <button
+            onClick={() => {
+              const bhW = designEff.breathHoleWidthIn > 0 ? designEff.breathHoleWidthIn : 0.28;
+              const bhL = designEff.breathHoleLengthIn > 0 ? designEff.breathHoleLengthIn : 0.53;
+              const exportObj = {
+                design: {
+                  bore: designEff.bore,
+                  sacLen: designEff.sacLen,
+                  shW: designEff.shW,
+                  breathHoleWidthIn: bhW,
+                  breathHoleLengthIn: bhL,
+                },
+                params: {
+                  wallMm: params.wallMm,
+                  flueDepthMm: params.flueDepthMm,
+                  tshLengthMm: params.tshLengthMm,
+                  flueLenMm: params.flueLenMm,
+                  rampAngle: params.rampAngle,
+                  rampCurve: params.rampCurve,
+                  backsetMm: params.backsetMm,
+                  tipFlatMm: params.tipFlatMm,
+                  chimneyMm: params.chimneyMm,
+                  tipHeightMm: params.tipHeightMm,
+                  fippleAngle: params.fippleAngle,
+                },
+                _meta: {
+                  exportedFrom: "NAF Flute & Duduk Calculator — Flow Studio",
+                  exportedAt: new Date().toISOString(),
+                  rootFreq: designEff.rootFreq || null,
+                  note: "Load with build_air_volume.py from the CFD pipeline package (python3 build_air_volume.py <this file>).",
+                },
+              };
+              const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+              downloadBlob(blob, `naf_cfd_design_${Date.now()}.json`);
+            }}
+            style={S.btn("#0c4a6e", "#e0f2fe")}
+          >
+            ⬇ Export nest dimensions for CFD (JSON)
+          </button>
+        </Section>
 
         {/* ── Quality score ── */}
-        <div style={S.card}>
-          <div style={S.h}>Sound quality</div>
+        <Section id="quality" title="Sound quality">
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
             <span style={{ fontSize: 34, fontWeight: 900, color: score.total >= 70 ? "#34d399" : score.total >= 40 ? "#fbbf24" : "#f87171" }}>{score.total}</span>
             <span style={{ fontSize: 12, color: "#94a3b8" }}>/ 100 predicted</span>
@@ -10188,11 +13591,10 @@ function FlowStudioPage() {
               <div style={{ background: "#1e293b", borderRadius: 3, marginTop: 2 }}><div style={S.bar(p.val)} /></div>
             </div>
           ))}
-        </div>
+        </Section>
 
         {/* ── Nest library ── */}
-        <div style={S.card}>
-          <div style={S.h}>Nest library</div>
+        <Section id="library" title="Nest library">
           <select value={selectedNestId} onChange={e => applyNest(e.target.value)} style={S.select}>
             <option value="">Load a saved nest…</option>
             {nests.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
@@ -10201,7 +13603,7 @@ function FlowStudioPage() {
             <input placeholder="Name this nest…" value={saveName} onChange={e => setSaveName(e.target.value)} style={S.input} />
             <button onClick={doSaveNest} style={{ ...S.btn("#38bdf8", "#04121f"), width: "auto", marginTop: 0, whiteSpace: "nowrap" }}>💾 Save</button>
           </div>
-        </div>
+        </Section>
 
         {status && (
           <div style={{ ...S.card, borderColor: "#0e7490", color: "#a5f3fc", fontSize: 12 }}>{status}</div>
@@ -10217,6 +13619,15 @@ function App() {
   const [pendingLoad, setPendingLoad] = useState(null); // { kind, config } from Library "Open"
   const [gcodeProgram, setGcodeProgram] = useState(null); // { gcode, filename, ts } from CNC section handoff
 
+  // Flow Studio's mount is deferred until its tab is opened at least once —
+  // it's the one page whose first render pays for a full Three.js particle
+  // scene (renderer, camera, controls, particle buffer), which is wasted
+  // work on every load for anyone who never visits that tab. Once true this
+  // never goes back to false, so the state it holds still survives later
+  // tab switches exactly like Flute/Duduk/G-Code do.
+  const [flowMounted, setFlowMounted] = useState(page === "flow");
+  useEffect(() => { if (page === "flow") setFlowMounted(true); }, [page]);
+
   const bg0 = "#0f0801", gold = "#f59e0b", bone = "#e5d5b8", muted = "#8a7255", border = "#3a2a14", bg2 = "#241608";
 
   const handleLoadFromLibrary = (item) => {
@@ -10231,7 +13642,7 @@ function App() {
     const onOpenGcode = (e) => {
       const d = (e && e.detail) || {};
       if (!d.gcode) return;
-      setGcodeProgram({ gcode: d.gcode, filename: d.filename, ts: Date.now() });
+      setGcodeProgram({ gcode: d.gcode, filename: d.filename, splitParams: d.splitParams || null, ts: Date.now() });
       setPage("gcode");
     };
     window.addEventListener("naf-open-gcode-viewer", onOpenGcode);
@@ -10276,14 +13687,20 @@ function App() {
         <GCodeViewerPage initialProgram={gcodeProgram} active={page === "gcode"}/>
       </div>
 
-      {/* Flute, Duduk and Flow Studio stay MOUNTED at all times and are
-          shown/hidden with display toggling (same trick as the G-code
-          viewer above). Conditionally rendering them with `&&` used to
-          UNMOUNT the active page on every tab switch, wiping all of its
-          useState (bore, holes, nest overrides, lighting, flow params…) —
-          which is why settings vanished when you bounced to G-Code and back.
-          Their 3D viewers get a ResizeObserver so they still size correctly
-          when a tab that was built while hidden is first revealed.
+      {/* Flute and Duduk stay MOUNTED at all times and are shown/hidden with
+          display toggling (same trick as the G-code viewer above).
+          Conditionally rendering them with `&&` used to UNMOUNT the active
+          page on every tab switch, wiping all of its useState (bore, holes,
+          nest overrides, lighting, flow params…) — which is why settings
+          vanished when you bounced to G-Code and back. Their 3D viewers get
+          a ResizeObserver so they still size correctly when a tab that was
+          built while hidden is first revealed.
+          Flow Studio gets the same stay-mounted treatment, but only AFTER
+          its tab has been opened once (flowMounted, above) — it's the one
+          page whose mount effect builds a full Three.js particle scene
+          immediately, so a fresh page load doesn't pay for that until the
+          user actually visits it. Once mounted it never unmounts, so its
+          own state survives tab switches the same as the others.
           Library has no precious in-page state (it re-reads localStorage on
           mount) so it stays conditional and avoids an extra idle WebGL view. */}
       <div style={{
@@ -10303,7 +13720,7 @@ function App() {
           />
         </div>
         <div style={{display: page === "flow" ? "block" : "none", height: "100%"}}>
-          <FlowStudioPage/>
+          {flowMounted && <FlowStudioPage/>}
         </div>
         {page === "library" && <LibraryPage onLoad={handleLoadFromLibrary}/>}
       </div>
