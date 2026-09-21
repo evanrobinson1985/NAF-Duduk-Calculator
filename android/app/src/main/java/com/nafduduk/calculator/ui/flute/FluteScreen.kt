@@ -51,6 +51,7 @@ import com.nafduduk.calculator.pdf.PdfDroneSummary
 import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
 import com.nafduduk.calculator.pdf.savePdfAndShare
+import com.nafduduk.calculator.ui.tuner.TunerPanel
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -116,6 +117,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var saveOpen by remember { mutableStateOf(false) }
     var saveName by remember { mutableStateOf("") }
     var savedMsg by remember { mutableStateOf("") }
+    var showTuner by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -131,6 +133,15 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     Pill(text = n.name, selected = n.name == noteKey, onClick = { noteKey = n.name })
                 }
             }
+            Button(
+                onClick = { showTuner = !showTuner },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(if (showTuner) "🎤 Hide Tuner" else "🎤 Real-Time Tuner") }
+        }
+
+        if (showTuner) {
+            TunerPanel(targetNoteDefault = noteKey, notes = notes, onClose = { showTuner = false })
         }
 
         SectionCard {

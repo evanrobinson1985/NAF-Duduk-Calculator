@@ -43,6 +43,7 @@ import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
+import com.nafduduk.calculator.ui.tuner.TunerPanel
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
@@ -102,6 +103,7 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var saveOpen by remember { mutableStateOf(false) }
     var saveName by remember { mutableStateOf("") }
     var savedMsg by remember { mutableStateOf("") }
+    var showTuner by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -127,6 +129,15 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     Pill(text = n.name, selected = n.name == noteKey, onClick = { noteKey = n.name })
                 }
             }
+            Button(
+                onClick = { showTuner = !showTuner },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(if (showTuner) "🎤 Hide Tuner" else "🎤 Real-Time Tuner") }
+        }
+
+        if (showTuner) {
+            TunerPanel(targetNoteDefault = noteKey, notes = notes, onClose = { showTuner = false })
         }
 
         SectionCard {

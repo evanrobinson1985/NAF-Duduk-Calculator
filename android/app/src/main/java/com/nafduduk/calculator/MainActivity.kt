@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -56,27 +57,39 @@ fun AppRoot() {
     // Mirrors App()'s pendingLoad: set by the Library tab's "Open" action,
     // consumed (and cleared) by the target screen's onConfigLoaded callback.
     var pendingLoad by remember { mutableStateOf<LibraryItem?>(null) }
+    // Web pages stay mounted-but-hidden across tab switches so their state
+    // (bore, holes, mic, nest overrides...) survives bouncing to another
+    // tab and back — see App()'s own comment on why display:none beat
+    // conditional rendering. A plain `when` branch here would instead fully
+    // dispose each screen's composable on every switch, losing its
+    // rememberSaveable state (and cancelling anything live, like the
+    // tuner's mic loop). A SaveableStateHolder reproduces that "stays
+    // mounted" behavior per tab without needing every screen to actually
+    // stay composed off-screen.
+    val stateHolder = rememberSaveableStateHolder()
 
     Column(modifier = Modifier.fillMaxSize()) {
         AppTabBar(current = tab, onSelect = { tab = it })
         Box(modifier = Modifier.fillMaxSize().background(Bg0)) {
-            when (tab) {
-                AppTab.Flute -> FluteScreen(
-                    loadConfigJson = pendingLoad?.takeIf { it.kind == "flute" }?.configJson,
-                    onConfigLoaded = { pendingLoad = null },
-                )
-                AppTab.Duduk -> DudukScreen(
-                    loadConfigJson = pendingLoad?.takeIf { it.kind == "duduk" }?.configJson,
-                    onConfigLoaded = { pendingLoad = null },
-                )
-                AppTab.Library -> LibraryScreen(
-                    onLoad = { item ->
-                        pendingLoad = item
-                        tab = if (item.kind == "duduk") AppTab.Duduk else AppTab.Flute
-                    },
-                )
-                AppTab.GCode -> PlaceholderPage("G-Code Viewer — coming soon")
-                AppTab.FlowStudio -> PlaceholderPage("Flow Studio — coming soon")
+            stateHolder.SaveableStateProvider(tab) {
+                when (tab) {
+                    AppTab.Flute -> FluteScreen(
+                        loadConfigJson = pendingLoad?.takeIf { it.kind == "flute" }?.configJson,
+                        onConfigLoaded = { pendingLoad = null },
+                    )
+                    AppTab.Duduk -> DudukScreen(
+                        loadConfigJson = pendingLoad?.takeIf { it.kind == "duduk" }?.configJson,
+                        onConfigLoaded = { pendingLoad = null },
+                    )
+                    AppTab.Library -> LibraryScreen(
+                        onLoad = { item ->
+                            pendingLoad = item
+                            tab = if (item.kind == "duduk") AppTab.Duduk else AppTab.Flute
+                        },
+                    )
+                    AppTab.GCode -> PlaceholderPage("G-Code Viewer — coming soon")
+                    AppTab.FlowStudio -> PlaceholderPage("Flow Studio — coming soon")
+                }
             }
         }
     }

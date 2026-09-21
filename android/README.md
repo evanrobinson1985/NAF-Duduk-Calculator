@@ -76,6 +76,13 @@ slice, not a stub.
   when opened from the Library tab, wired through `MainActivity`'s
   `pendingLoad`, mirroring `App()`'s own pending-load handoff.
 
+- **Real-time tuner** (`app/src/main/java/com/nafduduk/calculator/ui/tuner/TunerPanel.kt`)
+  — `autoCorrelatePitch()` ported 1:1 to `engine/PitchDetection.kt` (same
+  O(n²) autocorrelation, same silence threshold, same parabolic
+  interpolation), fed by `AudioRecord` instead of a Web Audio
+  `AnalyserNode`. Runtime `RECORD_AUDIO` permission handling included.
+  Toggleable from both the Flute and Duduk screens.
+
 ## What's NOT ported yet
 
 - **The "split-block" CNC milling strategy**
@@ -99,7 +106,7 @@ slice, not a stub.
 - Nest overrides, ergonomic hole adjustment UI, harmony builder, antler
   assistant, finger-reach analyzer.
 - The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
-- Real-time tuner (mic pitch detection), Flow Studio.
+- Flow Studio.
 
 These are tracked as separate phases — ask to continue any of them.
 
