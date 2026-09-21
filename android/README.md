@@ -57,12 +57,39 @@ slice, not a stub.
   not a redesign. Exported via `FileProvider` + the share sheet.
 
 - **CNC G-code export** (`app/src/main/java/com/nafduduk/calculator/gcode/`)
-  — the "tube drilling" strategy (`generateTubeDrillingGCode`, ported 1:1):
-  drills the sound hole, SAC exit, flue channel, and finger holes into a
-  tube that already has its internal wall/plug installed. Explicit
-  rapid/feed peck-drilling moves, no G81/G83 canned cycles, so it runs on
-  GRBL as well as LinuxCNC/Mach3/4. `computeEasyModeParams` (auto tool
-  size/feeds/speeds from the flute's own dimensions) is ported too.
+  — both machining strategies, ported 1:1:
+  - **Tube drilling** (`generateTubeDrillingGCode`): drills the sound hole,
+    SAC exit, flue channel, and finger holes into a tube that already has
+    its internal wall/plug installed.
+  - **Split-block** (`generateSplitBlockGCode`, `SplitBlockGcode.kt` +
+    `SplitBlockNestInsert.kt` + `SplitBlockSymmetric.kt`): mills the full
+    acoustic nest into two half-blanks that glue together, in either of the
+    web source's two architectures — "nest-insert" (a tall lower blank
+    carrying the whole nest faced up to the inner roof, and a thin upper
+    shell with a rectangular through-window whose downstream edge is the
+    splitting edge; no flip) or "symmetric" (the classic split at the bore
+    axis, basic drilled layout / hand-finish mode: only the SAC and full
+    bore are cut at true size, every other feature is a locating cut left
+    `HAND_FINISH_UNDERSIZE_IN` undersized, and the ramp/splitting edge are
+    entirely hand-carved). Includes the helical-ramp exact-diameter hole
+    borer (`drillRoundHole`), the alignment-dowel pin planner (`SplitFit`,
+    ported from `SPLIT_FIT`), the mouthpiece plan-outline rough cut with
+    outward-normal offsetting, and the body-outline scribe/full-cutout
+    passes with mitered cutter compensation and registration tabs. Wired
+    into the Flute screen's "Export CNC G-Code (Split-Block)" button with a
+    style picker; the quick-export button only covers straight bodies (the
+    web app's curve param isn't wired into that button yet, though the
+    generator itself takes and honors it).
+  - Both strategies use explicit rapid/feed peck-drilling moves, no G81/G83
+    canned cycles, so they run on GRBL as well as LinuxCNC/Mach3/4.
+    `computeEasyModeParams` (auto tool size/feeds/speeds from the flute's
+    own dimensions, for both methods) is ported too.
+  - The split-block port was verified without a build by compiling it
+    standalone against `kotlin-compiler-embeddable` (bundled with the
+    project's Gradle distribution) plus the pure-Kotlin `engine`/`gcode`
+    sources on the classpath — a real syntax/type check, not just manual
+    review, for everything except the Android-only pieces (Compose UI,
+    `FileProvider` sharing) that this sandbox still can't reach.
 
 - **Library** (`app/src/main/java/com/nafduduk/calculator/library/`) — save
   and reload full Flute/Duduk build configurations. `LibraryStorage.kt`
@@ -141,22 +168,22 @@ slice, not a stub.
 
 ## What's NOT ported yet
 
-- **The "split-block" CNC milling strategy**
-  (`generateSplitBlockGCode` in the jsx, ~1,600 lines across its
-  "symmetric" and "nest-insert" variants) — cutting the full acoustic nest
-  (ramp, flue, SAC, splitting edge) from two glued half-blanks on a mill,
-  as opposed to drilling holes into an already-round tube. Its toolpath
-  math (mouthpiece outline offsetting, alignment-pin planning, ball-nose
-  bore sweeps) is intricate enough that it was deferred until the exact
-  nest-profile precision above existed to build it against — that
-  dependency is now resolved.
 - The G-Code viewer/toolpath simulator (2D/3D playback of a loaded
   program) — a Three.js-scene feature distinct from the chamber 3D preview
   above.
 - Nest (SAC exit ramp/flue channel/TSH/fipple) override sliders on the
   Flute page itself (Flow Studio has its own independent nest-override
   controls, already ported, and the 3D preview's exact nest cut uses the
-  same bore-derived auto formulas the Flute page does).
+  same bore-derived auto formulas the Flute page does). The split-block
+  generator itself already accepts the same per-chamber nest overrides as
+  the web source (`GcodeChamber.nestRampAngleDeg`/`nestRampCurve`/etc.) —
+  they're just not exposed as sliders on the Flute page yet, so every
+  export uses the auto formulas.
+- The split-block quick-export button on the Flute screen always builds a
+  straight body (`Curve.STRAIGHT`) — the generator itself takes and honors
+  a `curve` parameter (bow amplitude flows through every toolpath exactly
+  as in the source), it's just not wired to a picker on that button yet
+  (the 3D preview panel has its own separate straight/slight/heavy picker).
 
 These are tracked as separate phases — ask to continue any of them.
 

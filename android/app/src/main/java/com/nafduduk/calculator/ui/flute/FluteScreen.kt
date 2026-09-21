@@ -40,8 +40,10 @@ import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.engine.recommendedBores
 import com.nafduduk.calculator.gcode.GcodeChamber
 import com.nafduduk.calculator.gcode.GcodeMethod
+import com.nafduduk.calculator.gcode.SplitBlockParams
 import com.nafduduk.calculator.gcode.TubeDrillingParams
 import com.nafduduk.calculator.gcode.computeEasyModeParams
+import com.nafduduk.calculator.gcode.generateSplitBlockGCode
 import com.nafduduk.calculator.gcode.generateTubeDrillingGCode
 import com.nafduduk.calculator.gcode.saveGcodeAndShare
 import com.nafduduk.calculator.library.FluteConfig
@@ -132,6 +134,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var savedMsg by remember { mutableStateOf("") }
     var showTuner by remember { mutableStateOf(false) }
     var show3dPreview by remember { mutableStateOf(false) }
+    var splitStyle by rememberSaveable { mutableStateOf("nest-insert") } // "nest-insert" | "symmetric"
 
     Column(
         modifier = Modifier
@@ -533,7 +536,77 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 ) {
                     Text("Export CNC G-Code (Tube Drilling)", fontWeight = FontWeight.Bold)
                 }
-                MutedNote("Drills the sound hole, SAC exit, flue channel, and finger holes into a tube. The split-block milling strategy (cutting the full acoustic nest from raw stock) isn't ported yet — see android/README.md.")
+                MutedNote("Drills the sound hole, SAC exit, flue channel, and finger holes into an already-round tube.")
+
+                FieldLabel("Split-Block Style")
+                PillRow {
+                    Pill(text = "Embedded nest", selected = splitStyle == "nest-insert", onClick = { splitStyle = "nest-insert" })
+                    Pill(text = "Basic drilled layout", selected = splitStyle == "symmetric", onClick = { splitStyle = "symmetric" })
+                }
+                Button(
+                    onClick = {
+                        val melodyChamber = GcodeChamber(
+                            lengthIn = geometry.lengthIn,
+                            sacLenIn = geometry.sacLenIn,
+                            boreIn = boreIn,
+                            holes = geometry.holes,
+                            playable = true,
+                            label = "MELODY",
+                            shWIn = geometry.soundHoleWidthIn,
+                            shLIn = geometry.soundHoleLengthIn,
+                        )
+                        val droneChambers = if (fluteStyle == "drone") {
+                            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                                GcodeChamber(
+                                    lengthIn = dr.lengthIn,
+                                    sacLenIn = dr.sacLenIn,
+                                    boreIn = dr.boreIn,
+                                    holes = dr.holes,
+                                    playable = dr.playable,
+                                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
+                                    shWIn = dr.shWIn,
+                                    shLIn = dr.shLIn,
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        val chambers = listOf(melodyChamber) + droneChambers
+                        val easy = computeEasyModeParams(chambers, GcodeMethod.SPLIT)
+                        val gcode = generateSplitBlockGCode(
+                            SplitBlockParams(
+                                chambers = chambers,
+                                curve = Curve.STRAIGHT,
+                                units = "in",
+                                toolDiameter = easy.toolDiameter,
+                                stepdown = easy.stepdown,
+                                feedRate = easy.feedRate,
+                                plungeRate = easy.plungeRate,
+                                safeHeight = easy.safeHeight,
+                                stockMarginX = easy.stockMarginX,
+                                stockMarginY = easy.stockMarginY,
+                                channelStyle = easy.channelStyle,
+                                dialect = "grbl",
+                                spindleSpeed = easy.spindleSpeed,
+                                alignPins = true,
+                                splitStyle = splitStyle,
+                                only = "all",
+                            ),
+                        )
+                        saveGcodeAndShare(context, gcode, "naf_flute_${holeCount}hole_split_block_${splitStyle}.nc")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Export CNC G-Code (Split-Block)", fontWeight = FontWeight.Bold)
+                }
+                MutedNote(
+                    if (splitStyle == "nest-insert") {
+                        "Mills the full acoustic nest (ramp, flue, SAC exit, splitting edge) into two raw-stock blanks — a tall lower blank carrying the nest and a thin upper shell with the sound window. No flip; straight bodies only from this quick-export button (curved bodies need the curve param wired up — see android/README.md)."
+                    } else {
+                        "Basic drilled layout, hand-finish mode: the SAC and full bore are cut at true size; every other feature is a locating cut left undersized to hand-fit. The ramp and splitting edge are entirely hand-carved. Straight bodies only from this quick-export button."
+                    },
+                )
             }
         } else {
             SectionCard {

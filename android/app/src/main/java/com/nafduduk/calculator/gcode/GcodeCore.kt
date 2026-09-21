@@ -153,6 +153,13 @@ data class GcodeChamber(
     val nestWallThicknessIn: Double? = null,
     val breathHoleWidthIn: Double? = null,
     val breathHoleLengthIn: Double? = null,
+    // Only read by the split-block generator (no override UI yet on Android — always null/auto).
+    val nestRampAngleDeg: Double? = null,
+    val nestRampCurve: Double? = null,
+    val nestFippleAngleDeg: Double? = null,
+    val nestBacksetIn: Double? = null,
+    val nestTipHeightIn: Double? = null,
+    val nestTipFlatIn: Double? = null,
 ) {
     val effShW get() = if (shWIn > 0) shWIn else FluteConst.soundHoleWidth(boreIn)
     val effShL get() = if (shLIn > 0) shLIn else FluteConst.soundHoleLength(boreIn)
