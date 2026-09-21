@@ -41,10 +41,12 @@ import kotlinx.coroutines.withContext
 /**
  * The Flute screen's "3D Preview" panel: builds the current chamber's CSG
  * solid (off the main thread — boolean mesh ops aren't free), renders it
- * with Filament, and exports it as STL/OBJ/PLY/glTF. See
- * ChamberMeshBuilder.kt's doc comment for what's simplified relative to
- * the web app's exact nest geometry, and Viewer3DView.kt's for the
- * Filament-API caveat.
+ * with Filament, and exports it as STL/OBJ/PLY/glTF. The nest/flue/ramp
+ * cut is the exact swept 2D profile from the web source (see
+ * ChamberMeshBuilder.kt's doc comment for the two remaining, deliberate
+ * differences — no nest-override UI, and one unioned watertight part
+ * instead of a multi-mesh scene), and Viewer3DView.kt's doc comment notes
+ * the Filament-API caveat.
  */
 @Composable
 fun Viewer3DPanel(geometry: ChamberGeometry, fileBaseName: String) {
@@ -60,7 +62,7 @@ fun Viewer3DPanel(geometry: ChamberGeometry, fileBaseName: String) {
     }
 
     Column {
-        MutedNote("A simplified 3D preview: hollow bore, finger holes, and an approximated sound-hole/flue/ramp cut (not the exact machining-precision nest profile — see android/README.md). Pinch/drag to orbit, pan, and zoom.")
+        MutedNote("3D preview: hollow bore, finger holes, and the exact sound-hole/flue/ramp nest cut (see android/README.md). Pinch/drag to orbit, pan, and zoom.")
 
         PillRow(modifier = Modifier.padding(vertical = 8.dp)) {
             Pill(text = "Straight", selected = curve == Curve.STRAIGHT, onClick = { curve = Curve.STRAIGHT })

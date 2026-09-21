@@ -16,7 +16,7 @@ fun exportGltf(solid: CsgSolid): String {
     val normals = mutableListOf<Float>()
 
     for (poly in solid.polygons) {
-        for ((a, b, c) in poly.triangles()) {
+        for ((a, b, c) in poly.triangulate()) {
             for (v in listOf(a, b, c)) {
                 positions.add(v.pos.x.toFloat())
                 positions.add(v.pos.y.toFloat())

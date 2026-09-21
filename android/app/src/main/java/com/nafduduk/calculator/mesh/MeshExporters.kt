@@ -2,15 +2,6 @@ package com.nafduduk.calculator.mesh
 
 import java.util.Locale
 
-/** Fan-triangulates a polygon from vertex 0 — valid since every polygon this app builds (box faces, tube rings, CSG-clipped fragments of those) is convex. */
-private fun Polygon.triangles(): List<Triple<Vertex, Vertex, Vertex>> {
-    val tris = mutableListOf<Triple<Vertex, Vertex, Vertex>>()
-    for (i in 1 until vertices.size - 1) {
-        tris.add(Triple(vertices[0], vertices[i], vertices[i + 1]))
-    }
-    return tris
-}
-
 private fun fmt(v: Double): String = String.format(Locale.US, "%.6f", v)
 
 /** ASCII STL — one facet per triangle, in the mesh's own coordinate units (inches, matching the rest of the app). */
@@ -18,7 +9,7 @@ fun exportStl(solid: CsgSolid, name: String = "naf_flute"): String {
     val sb = StringBuilder()
     sb.append("solid $name\n")
     for (poly in solid.polygons) {
-        for ((a, b, c) in poly.triangles()) {
+        for ((a, b, c) in poly.triangulate()) {
             val n = poly.plane.normal
             sb.append("  facet normal ${fmt(n.x)} ${fmt(n.y)} ${fmt(n.z)}\n")
             sb.append("    outer loop\n")
@@ -33,7 +24,13 @@ fun exportStl(solid: CsgSolid, name: String = "naf_flute"): String {
     return sb.toString()
 }
 
-/** Wavefront OBJ — shares vertices by exact-position dedup (keeps file size sane for a dense mesh). */
+/**
+ * Wavefront OBJ — shares vertices by exact-position dedup (keeps file size
+ * sane for a dense mesh). Faces are written as their native n-gon (OBJ's
+ * `f` directive supports any vertex count, including concave polygons —
+ * unlike STL/PLY, no triangulation is needed here; readers triangulate
+ * n-gon faces themselves).
+ */
 fun exportObj(solid: CsgSolid, name: String = "naf_flute"): String {
     val sb = StringBuilder()
     sb.append("# $name — exported by NAF Flute & Duduk Calculator (Android)\n")
@@ -61,7 +58,7 @@ fun exportObj(solid: CsgSolid, name: String = "naf_flute"): String {
 
 /** Stanford PLY (ASCII) — triangulated, one vertex per triangle-corner (simplest correct encoding, larger file). */
 fun exportPly(solid: CsgSolid): String {
-    val allTris = solid.polygons.flatMap { it.triangles() }
+    val allTris = solid.polygons.flatMap { it.triangulate() }
     val header = StringBuilder()
     header.append("ply\n")
     header.append("format ascii 1.0\n")

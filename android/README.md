@@ -114,22 +114,30 @@ slice, not a stub.
 - **3D preview + mesh export** (`app/src/main/java/com/nafduduk/calculator/mesh/`,
   `ui/viewer3d/`) — a from-scratch BSP-tree CSG engine (`Csg.kt`, the
   Android equivalent of the web app's `three-bvh-csg`), a chamber mesh
-  builder (`ChamberMeshBuilder.kt`: hollow bore, finger holes, and a
-  simplified sound-hole/flue/ramp cut — see the caveat below), STL/OBJ/PLY/
-  glTF exporters, and an interactive Filament-based 3D view
-  (`Viewer3DView.kt`) with orbit/pan/zoom, embedded in the Flute screen.
-  **Two honest caveats, in order of how much they matter:**
-  1. The CSG engine and mesh math were hand-verified against the classic
-     BSP-CSG algorithm and by hand-deriving the polygon winding orders —
-     but never compiled or rendered, so treat the first real build+run as
-     the actual test, not this description.
-  2. The nest cut (sound hole/flue/ramp) is deliberately *not* the web
-     app's exact swept-bezier profile (see `buildChamberMesh()` in the
-     jsx) — it's a set of box/wedge CSG cuts at the same real dimensions
-     and position, chosen because replicating that profile's local-frame
-     bezier-curve precision was judged not worth the added, unverifiable
-     CSG risk. The split-block CNC strategy below has the same nest-
-     precision dependency and is deferred for the same reason.
+  builder (`ChamberMeshBuilder.kt`: hollow bore, finger holes, and the
+  exact sound-hole/flue/ramp nest cut — see below), STL/OBJ/PLY/glTF
+  exporters (with a proper ear-clipping triangulator, `Triangulation.kt`,
+  since the exact nest profile introduced genuinely concave CSG fragments
+  that naive fan-triangulation gets wrong), and an interactive
+  Filament-based 3D view (`Viewer3DView.kt`) with orbit/pan/zoom, embedded
+  in the Flute screen.
+  - The nest cut (sound hole/flue/ramp) is now the web app's exact
+    swept-2D-profile geometry (see `buildChamberMesh()` in the jsx): the
+    same "channel"/"block" `moveTo`/`lineTo`/`quadraticCurveTo` point
+    sequences, extruded along the tube's local frame
+    (`LocalFrame.kt`/`ExtrudedProfile.kt`, matching the source's
+    `localUpAt()` and `THREE.Shape`+`ExtrudeGeometry` construction
+    point-for-point), not a box/wedge approximation. Two intentional
+    differences remain, both because this app has no nest-override UI yet:
+    every nest dimension uses the bore-derived auto formula (equivalent to
+    every override being unset), and the result is one unioned watertight
+    part rather than the source's separate mouthpiece-plug/block meshes.
+  - The CSG engine and mesh math (including this exact-profile geometry)
+    were hand-verified against the classic BSP-CSG algorithm and by
+    hand-deriving the polygon winding orders and the `localUpAt()`
+    Gram-Schmidt formula against the jsx source line-for-line — but never
+    compiled or rendered, so treat the first real build+run as the actual
+    test, not this description.
 
 ## What's NOT ported yet
 
@@ -137,18 +145,18 @@ slice, not a stub.
   (`generateSplitBlockGCode` in the jsx, ~1,600 lines across its
   "symmetric" and "nest-insert" variants) — cutting the full acoustic nest
   (ramp, flue, SAC, splitting edge) from two glued half-blanks on a mill,
-  as opposed to drilling holes into an already-round tube. Deliberately
-  deferred: it needs the exact nest-profile precision noted above, and its
-  toolpath math (mouthpiece outline offsetting, alignment-pin planning,
-  ball-nose bore sweeps) is intricate enough that porting it without that
-  precision risked either silently wrong toolpaths or a lot of rework.
+  as opposed to drilling holes into an already-round tube. Its toolpath
+  math (mouthpiece outline offsetting, alignment-pin planning, ball-nose
+  bore sweeps) is intricate enough that it was deferred until the exact
+  nest-profile precision above existed to build it against — that
+  dependency is now resolved.
 - The G-Code viewer/toolpath simulator (2D/3D playback of a loaded
   program) — a Three.js-scene feature distinct from the chamber 3D preview
   above.
 - Nest (SAC exit ramp/flue channel/TSH/fipple) override sliders on the
   Flute page itself (Flow Studio has its own independent nest-override
-  controls, already ported, and the 3D preview's simplified nest cut uses
-  the same bore-derived auto formulas the Flute page does).
+  controls, already ported, and the 3D preview's exact nest cut uses the
+  same bore-derived auto formulas the Flute page does).
 
 These are tracked as separate phases — ask to continue any of them.
 
