@@ -27,6 +27,7 @@ import com.nafduduk.calculator.library.LibraryScreen
 import com.nafduduk.calculator.ui.AppTabBar
 import com.nafduduk.calculator.ui.AppTab
 import com.nafduduk.calculator.ui.duduk.DudukScreen
+import com.nafduduk.calculator.ui.flow.FlowStudioScreen
 import com.nafduduk.calculator.ui.flute.FluteScreen
 import com.nafduduk.calculator.ui.theme.Bg0
 import com.nafduduk.calculator.ui.theme.NafDudukTheme
@@ -88,7 +89,7 @@ fun AppRoot() {
                         },
                     )
                     AppTab.GCode -> PlaceholderPage("G-Code Viewer — coming soon")
-                    AppTab.FlowStudio -> PlaceholderPage("Flow Studio — coming soon")
+                    AppTab.FlowStudio -> FlowStudioScreen()
                 }
             }
         }

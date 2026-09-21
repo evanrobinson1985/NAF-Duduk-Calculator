@@ -83,6 +83,17 @@ slice, not a stub.
   `AnalyserNode`. Runtime `RECORD_AUDIO` permission handling included.
   Toggleable from both the Flute and Duduk screens.
 
+- **Flow Studio** (`app/src/main/java/com/nafduduk/calculator/engine/FlowStudio.kt`
+  + `ui/flow/FlowStudioScreen.kt`) — the full aeroacoustics model
+  (`computeFluteAeroacoustics`), composite quality scorer
+  (`scoreFlowQuality`), and both optimizers (`optimizeNestForDesign`'s
+  closed-form theta=7/Re~950 solve, and `optimizeEverything`'s 3-sweep
+  coordinate-descent search over all 10 nest controls) ported 1:1. The
+  Three.js particle-jet visualization itself is out of scope — this is the
+  physics + recommendations, not the animation. Self-contained (builds its
+  own key/bore/holes design rather than reading a live bridge from the
+  Flute screen), same as the web version's own standalone fallback.
+
 ## What's NOT ported yet
 
 - **The "split-block" CNC milling strategy**
@@ -106,7 +117,6 @@ slice, not a stub.
 - Nest overrides, ergonomic hole adjustment UI, harmony builder, antler
   assistant, finger-reach analyzer.
 - The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
-- Flow Studio.
 
 These are tracked as separate phases — ask to continue any of them.
 
