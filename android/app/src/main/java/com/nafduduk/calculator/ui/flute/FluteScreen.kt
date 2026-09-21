@@ -1,5 +1,6 @@
 package com.nafduduk.calculator.ui.flute
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,9 +23,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nafduduk.calculator.engine.BORES
+import com.nafduduk.calculator.engine.DRONE_INTERVALS
+import com.nafduduk.calculator.engine.DroneChamber
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.buildChamberGeometry
+import com.nafduduk.calculator.engine.buildDroneResults
 import com.nafduduk.calculator.engine.getNotes
 import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.engine.recommendedBores
@@ -35,6 +40,7 @@ import com.nafduduk.calculator.gcode.computeEasyModeParams
 import com.nafduduk.calculator.gcode.generateTubeDrillingGCode
 import com.nafduduk.calculator.gcode.saveGcodeAndShare
 import com.nafduduk.calculator.pdf.FlutePdfData
+import com.nafduduk.calculator.pdf.PdfDroneSummary
 import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
 import com.nafduduk.calculator.pdf.savePdfAndShare
@@ -70,11 +76,21 @@ fun FluteScreen() {
     var handSizeName by rememberSaveable { mutableStateOf(HandSize.AVERAGE.name) }
     val handSize = remember(handSizeName) { HandSize.valueOf(handSizeName) }
 
+    // "single" | "drone". Drone-chamber state isn't rememberSaveable (no Saver
+    // written for the DroneChamber list yet) so it resets on a configuration
+    // change/process death — an accepted simplification for this phase.
+    var fluteStyle by rememberSaveable { mutableStateOf("single") }
+    var drones by remember { mutableStateOf(listOf(DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2))) }
+
     val selectedFreq = remember(noteKey, notes) { notes.find { it.name == noteKey }?.freq ?: 440.0 }
     val boreRec = remember(selectedFreq) { recommendedBores(selectedFreq) }
     val geometry = remember(boreIn, selectedFreq, holeCount, handSize) {
         buildChamberGeometry(bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize)
     }
+    val droneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry) {
+        if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, "round", geometry) else emptyList()
+    }
+    val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
 
     Column(
         modifier = Modifier
@@ -130,6 +146,104 @@ fun FluteScreen() {
             }
         }
 
+        SectionCard {
+            FieldLabel("Flute Style")
+            PillRow {
+                Pill(text = "🎵 Single Flute", selected = fluteStyle == "single", onClick = { fluteStyle = "single" })
+                Pill(text = "🎵🎵 Drone Flute", selected = fluteStyle == "drone", onClick = { fluteStyle = "drone" })
+            }
+        }
+
+        if (fluteStyle == "drone") {
+            drones.forEachIndexed { i, d ->
+                SectionCard {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        FieldLabel("Chamber ${i + 2} — ${if (d.playable) "Playable" else "Drone"}")
+                        if (drones.size > 1) {
+                            Text(
+                                "✕ Remove",
+                                color = Muted,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .padding(bottom = 8.dp)
+                                    .clickable { drones = drones.filterIndexed { idx, _ -> idx != i } },
+                            )
+                        }
+                    }
+                    PillRow {
+                        BORES.forEach { b ->
+                            Pill(
+                                text = b.label,
+                                selected = kotlin.math.abs(b.valIn - d.boreIn) < 1e-9,
+                                onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(boreIn = b.valIn) else dd } },
+                            )
+                        }
+                    }
+                    PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                        Pill(text = "Drone", selected = !d.playable, onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(playable = false) else dd } })
+                        Pill(text = "Playable", selected = d.playable, onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(playable = true, noteKey = dd.noteKey ?: noteKey) else dd } })
+                    }
+                    if (!d.playable) {
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            DRONE_INTERVALS.forEachIndexed { ii, di ->
+                                Pill(
+                                    text = di.label,
+                                    selected = ii == d.intervalIdx,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(intervalIdx = ii) else dd } },
+                                )
+                            }
+                        }
+                    } else {
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            standardNotes.forEach { n ->
+                                Pill(
+                                    text = n.name,
+                                    selected = n.name == d.noteKey,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(noteKey = n.name) else dd } },
+                                )
+                            }
+                        }
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            (1..7).forEach { hc ->
+                                Pill(
+                                    text = hc.toString(),
+                                    selected = hc == d.holeCount,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(holeCount = hc) else dd } },
+                                )
+                            }
+                        }
+                    }
+                    droneResults.getOrNull(i)?.let { dr ->
+                        if (dr.lengthIn > 0) {
+                            ResultRow("Length (L)", fmtIn(dr.lengthIn))
+                            dr.totalLenIn?.let { ResultRow("Total length", fmtIn(it)) }
+                            dr.note?.let { ResultRow("Note", it.name) }
+                        } else {
+                            MutedNote("This bore + interval doesn't produce a buildable length.")
+                        }
+                    }
+                }
+            }
+
+            if (drones.size < 3) {
+                Button(
+                    onClick = { drones = drones + DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2, noteKey = noteKey) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("+ Add Chamber (${drones.size + 1} of 4 max)") }
+            }
+
+            if (allDronesValid) {
+                val totalBoreWidth = boreIn + droneResults.sumOf { it.boreIn }
+                SectionCard {
+                    FieldLabel("Multi-Chamber Summary")
+                    ResultRow("Total chamber count", "${1 + droneResults.size} (${if (1 + droneResults.size == 4) "maximum" else "of 4 max"})")
+                    ResultRow("Combined bore width", fmtIn3(totalBoreWidth))
+                    MutedNote("All bores may fit side-by-side in one wide piece of stock — look for stock at least ${fmtIn3(totalBoreWidth * 1.4)} across.")
+                }
+            }
+        }
+
         if (geometry.playable) {
             SectionCard {
                 FieldLabel("Results")
@@ -152,6 +266,23 @@ fun FluteScreen() {
                 Button(
                     onClick = {
                         val rootNote = nearestNote(selectedFreq, notes)
+                        val validDrones = if (fluteStyle == "drone") {
+                            droneResults.filter { it.lengthIn > 0 && it.note != null }.map { dr ->
+                                PdfDroneSummary(
+                                    playable = dr.playable,
+                                    holeCount = dr.holeCount,
+                                    note = dr.note!!,
+                                    boreIn = dr.boreIn,
+                                    totalLenIn = dr.totalLenIn ?: dr.lengthIn,
+                                    lengthIn = dr.lengthIn,
+                                    sacLenIn = dr.sacLenIn,
+                                    holes = dr.holes,
+                                    droneIntervalLabel = dr.droneInterval?.label ?: "",
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
                         val pdfData = FlutePdfData(
                             boreIn = boreIn,
                             lengthIn = geometry.lengthIn,
@@ -163,8 +294,8 @@ fun FluteScreen() {
                             handSize = handSize.name.lowercase(),
                             antlerShape = "straight",
                             pipeMaterial = "straight",
-                            fluteStyle = "single",
-                            drones = emptyList(),
+                            fluteStyle = fluteStyle,
+                            drones = validDrones,
                             a4 = a4,
                             notes = notes,
                         )
@@ -179,7 +310,7 @@ fun FluteScreen() {
 
                 Button(
                     onClick = {
-                        val gcodeChamber = GcodeChamber(
+                        val melodyChamber = GcodeChamber(
                             lengthIn = geometry.lengthIn,
                             sacLenIn = geometry.sacLenIn,
                             boreIn = boreIn,
@@ -189,7 +320,23 @@ fun FluteScreen() {
                             shWIn = geometry.soundHoleWidthIn,
                             shLIn = geometry.soundHoleLengthIn,
                         )
-                        val chambers = listOf(gcodeChamber)
+                        val droneChambers = if (fluteStyle == "drone") {
+                            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                                GcodeChamber(
+                                    lengthIn = dr.lengthIn,
+                                    sacLenIn = dr.sacLenIn,
+                                    boreIn = dr.boreIn,
+                                    holes = dr.holes,
+                                    playable = dr.playable,
+                                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
+                                    shWIn = dr.shWIn,
+                                    shLIn = dr.shLIn,
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        val chambers = listOf(melodyChamber) + droneChambers
                         val easy = computeEasyModeParams(chambers, GcodeMethod.TUBE)
                         val gcode = generateTubeDrillingGCode(
                             TubeDrillingParams(
