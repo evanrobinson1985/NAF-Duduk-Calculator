@@ -11,8 +11,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +42,10 @@ import com.nafduduk.calculator.gcode.TubeDrillingParams
 import com.nafduduk.calculator.gcode.computeEasyModeParams
 import com.nafduduk.calculator.gcode.generateTubeDrillingGCode
 import com.nafduduk.calculator.gcode.saveGcodeAndShare
+import com.nafduduk.calculator.library.FluteConfig
+import com.nafduduk.calculator.library.parseFluteConfig
+import com.nafduduk.calculator.library.saveInstrumentToLibrary
+import com.nafduduk.calculator.library.toJson
 import com.nafduduk.calculator.pdf.FlutePdfData
 import com.nafduduk.calculator.pdf.PdfDroneSummary
 import com.nafduduk.calculator.pdf.exportFlutePdf
@@ -64,7 +71,7 @@ import java.util.Locale
  * 3D preview, PDF/CNC export are separate, larger phases (see repo TODOs).
  */
 @Composable
-fun FluteScreen() {
+fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {}) {
     val context = LocalContext.current
     val a4 = 440.0
     val notes = remember(a4) { getNotes(a4) }
@@ -91,6 +98,24 @@ fun FluteScreen() {
         if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, "round", geometry) else emptyList()
     }
     val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
+
+    LaunchedEffect(loadConfigJson) {
+        if (loadConfigJson != null) {
+            parseFluteConfig(loadConfigJson)?.let { c ->
+                noteKey = c.noteKey
+                boreIn = c.boreIn
+                holeCount = c.holeCount
+                handSizeName = c.handSize
+                fluteStyle = c.fluteStyle
+                drones = c.drones
+            }
+            onConfigLoaded()
+        }
+    }
+
+    var saveOpen by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
+    var savedMsg by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -252,6 +277,52 @@ fun FluteScreen() {
                 ResultRow("SAC (slow-air chamber) length", fmtIn(geometry.sacLenIn))
                 ResultRow("Sound-hole width", fmtIn(geometry.soundHoleWidthIn))
                 ResultRow("Sound-hole length", fmtIn(geometry.soundHoleLengthIn))
+            }
+
+            SectionCard {
+                FieldLabel("Save This Design")
+                if (!saveOpen) {
+                    Button(
+                        onClick = { saveOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("💾 Save to Library") }
+                } else {
+                    OutlinedTextField(
+                        value = saveName,
+                        onValueChange = { saveName = it },
+                        placeholder = { Text("e.g. \"My Favorite G Minor\"") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Bone, unfocusedTextColor = Bone,
+                            focusedBorderColor = Gold, unfocusedBorderColor = com.nafduduk.calculator.ui.theme.Border,
+                        ),
+                    )
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val rootNote = nearestNote(selectedFreq, notes)
+                                val config = FluteConfig(
+                                    noteKey = noteKey, boreIn = boreIn, holeCount = holeCount, handSize = handSizeName,
+                                    fluteStyle = fluteStyle, drones = drones, summaryRootNote = rootNote.name,
+                                    summaryMaterial = "straight", summaryIsDrone = fluteStyle == "drone",
+                                )
+                                val entry = saveInstrumentToLibrary(context, saveName, "flute", config.toJson())
+                                savedMsg = if (entry != null) "Saved as \"${entry.name}\"" else "Couldn't save — device storage may be full."
+                                if (entry != null) { saveName = ""; saveOpen = false }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Save") }
+                        Button(
+                            onClick = { saveOpen = false; saveName = "" },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Muted),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Cancel") }
+                    }
+                }
+                if (savedMsg.isNotEmpty()) MutedNote(savedMsg)
             }
 
             if (geometry.holes.isNotEmpty()) {

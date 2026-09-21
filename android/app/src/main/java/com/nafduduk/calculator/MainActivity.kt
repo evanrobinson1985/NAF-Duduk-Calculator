@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.nafduduk.calculator.library.LibraryItem
+import com.nafduduk.calculator.library.LibraryScreen
 import com.nafduduk.calculator.ui.AppTabBar
 import com.nafduduk.calculator.ui.AppTab
 import com.nafduduk.calculator.ui.duduk.DudukScreen
@@ -51,14 +53,28 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot() {
     var tab by rememberSaveable { mutableStateOf(AppTab.Flute) }
+    // Mirrors App()'s pendingLoad: set by the Library tab's "Open" action,
+    // consumed (and cleared) by the target screen's onConfigLoaded callback.
+    var pendingLoad by remember { mutableStateOf<LibraryItem?>(null) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         AppTabBar(current = tab, onSelect = { tab = it })
         Box(modifier = Modifier.fillMaxSize().background(Bg0)) {
             when (tab) {
-                AppTab.Flute -> FluteScreen()
-                AppTab.Duduk -> DudukScreen()
-                AppTab.Library -> PlaceholderPage("Library — coming soon")
+                AppTab.Flute -> FluteScreen(
+                    loadConfigJson = pendingLoad?.takeIf { it.kind == "flute" }?.configJson,
+                    onConfigLoaded = { pendingLoad = null },
+                )
+                AppTab.Duduk -> DudukScreen(
+                    loadConfigJson = pendingLoad?.takeIf { it.kind == "duduk" }?.configJson,
+                    onConfigLoaded = { pendingLoad = null },
+                )
+                AppTab.Library -> LibraryScreen(
+                    onLoad = { item ->
+                        pendingLoad = item
+                        tab = if (item.kind == "duduk") AppTab.Duduk else AppTab.Flute
+                    },
+                )
                 AppTab.GCode -> PlaceholderPage("G-Code Viewer — coming soon")
                 AppTab.FlowStudio -> PlaceholderPage("Flow Studio — coming soon")
             }

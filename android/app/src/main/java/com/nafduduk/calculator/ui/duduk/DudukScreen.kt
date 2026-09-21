@@ -8,14 +8,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,13 +29,19 @@ import com.nafduduk.calculator.engine.DUDUK_STYLES
 import com.nafduduk.calculator.engine.buildDudukDesignForKey
 import com.nafduduk.calculator.engine.getNotes
 import com.nafduduk.calculator.engine.recommendedDudukBore
+import com.nafduduk.calculator.library.DudukConfig
+import com.nafduduk.calculator.library.parseDudukConfig
+import com.nafduduk.calculator.library.saveInstrumentToLibrary
+import com.nafduduk.calculator.library.toJson
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
 import com.nafduduk.calculator.ui.common.ResultRow
 import com.nafduduk.calculator.ui.common.SectionCard
+import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
+import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
 import java.util.Locale
 import kotlin.math.max
@@ -41,7 +53,8 @@ import kotlin.math.min
  * wired to the ported duduk engine so numbers match the web app exactly.
  */
 @Composable
-fun DudukScreen() {
+fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {}) {
+    val context = LocalContext.current
     val a4 = 440.0
     val notes = remember(a4) { getNotes(a4) }
     val standardNotes = remember(notes) { notes.filter { !it.advanced } }
@@ -73,6 +86,22 @@ fun DudukScreen() {
     val design = remember(style, clampedBore, reedExt, clampedReedLen, rootFreq, notes) {
         buildDudukDesignForKey(style, clampedBore, reedExt, clampedReedLen, rootFreq, notes)
     }
+
+    LaunchedEffect(loadConfigJson) {
+        if (loadConfigJson != null) {
+            parseDudukConfig(loadConfigJson)?.let { c ->
+                styleId = c.styleId
+                boreIn = c.boreIn
+                noteKey = c.noteKey
+                reedLenIn = c.reedLenIn
+            }
+            onConfigLoaded()
+        }
+    }
+
+    var saveOpen by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
+    var savedMsg by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -134,6 +163,50 @@ fun DudukScreen() {
             design.holes.forEach { h ->
                 DudukHoleRow(num = h.num, interval = h.interval, thumb = h.thumb, fromReed = h.fromReedIn, diameter = h.diameterIn)
             }
+        }
+
+        SectionCard {
+            FieldLabel("Save This Design")
+            if (!saveOpen) {
+                Button(
+                    onClick = { saveOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("💾 Save to Library") }
+            } else {
+                OutlinedTextField(
+                    value = saveName,
+                    onValueChange = { saveName = it },
+                    placeholder = { Text("e.g. \"My Traditional A3 Duduk\"") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Bone, unfocusedTextColor = Bone,
+                        focusedBorderColor = Gold, unfocusedBorderColor = com.nafduduk.calculator.ui.theme.Border,
+                    ),
+                )
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val config = DudukConfig(
+                                styleId = styleId, boreIn = boreIn, noteKey = noteKey, reedLenIn = reedLenIn,
+                                summaryRootNote = design.rootNote.name, summaryStyle = style.label,
+                            )
+                            val entry = saveInstrumentToLibrary(context, saveName, "duduk", config.toJson())
+                            savedMsg = if (entry != null) "Saved as \"${entry.name}\"" else "Couldn't save — device storage may be full."
+                            if (entry != null) { saveName = ""; saveOpen = false }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Save") }
+                    Button(
+                        onClick = { saveOpen = false; saveName = "" },
+                        colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Muted),
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Cancel") }
+                }
+            }
+            if (savedMsg.isNotEmpty()) MutedNote(savedMsg)
         }
     }
 }

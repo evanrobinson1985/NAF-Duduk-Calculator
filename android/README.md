@@ -64,6 +64,18 @@ slice, not a stub.
   GRBL as well as LinuxCNC/Mach3/4. `computeEasyModeParams` (auto tool
   size/feeds/speeds from the flute's own dimensions) is ported too.
 
+- **Library** (`app/src/main/java/com/nafduduk/calculator/library/`) — save
+  and reload full Flute/Duduk build configurations. `LibraryStorage.kt`
+  ports `loadLibrary`/`persistLibrary`/`saveInstrumentToLibrary`/
+  `deleteInstrumentFromLibrary`/`renameInstrumentInLibrary` verbatim, backed
+  by `SharedPreferences` (JSON array of entries) instead of the web app's
+  `localStorage` — same shape, same one-entry-per-instrument model.
+  `LibraryScreen.kt` is the filterable list (All/Flute/Duduk) with
+  Open/Rename/Delete, matching `LibraryPage`. Both calculator screens got a
+  "Save to Library" card and now accept a `loadConfigJson` to restore state
+  when opened from the Library tab, wired through `MainActivity`'s
+  `pendingLoad`, mirroring `App()`'s own pending-load handoff.
+
 ## What's NOT ported yet
 
 - **The "split-block" CNC milling strategy**
@@ -87,7 +99,7 @@ slice, not a stub.
 - Nest overrides, ergonomic hole adjustment UI, harmony builder, antler
   assistant, finger-reach analyzer.
 - The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
-- Real-time tuner (mic pitch detection), Library (save/load), Flow Studio.
+- Real-time tuner (mic pitch detection), Flow Studio.
 
 These are tracked as separate phases — ask to continue any of them.
 
