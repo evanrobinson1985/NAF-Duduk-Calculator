@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,7 +26,12 @@ import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.buildChamberGeometry
 import com.nafduduk.calculator.engine.getNotes
+import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.engine.recommendedBores
+import com.nafduduk.calculator.pdf.FlutePdfData
+import com.nafduduk.calculator.pdf.exportFlutePdf
+import com.nafduduk.calculator.pdf.flutePdfFileName
+import com.nafduduk.calculator.pdf.savePdfAndShare
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -44,6 +52,7 @@ import java.util.Locale
  */
 @Composable
 fun FluteScreen() {
+    val context = LocalContext.current
     val a4 = 440.0
     val notes = remember(a4) { getNotes(a4) }
     val standardNotes = remember(notes) { notes.filter { !it.advanced } }
@@ -131,6 +140,34 @@ fun FluteScreen() {
                     geometry.holes.sortedByDescending { it.num }.forEach { h ->
                         HoleRow(num = h.num, interval = h.interval, fromTsh = h.fromTshIn, diameter = h.diameterIn)
                     }
+                }
+
+                Button(
+                    onClick = {
+                        val rootNote = nearestNote(selectedFreq, notes)
+                        val pdfData = FlutePdfData(
+                            boreIn = boreIn,
+                            lengthIn = geometry.lengthIn,
+                            holes = geometry.holes,
+                            holeCount = holeCount,
+                            rootNote = rootNote,
+                            totalLenIn = geometry.totalLenIn ?: geometry.lengthIn,
+                            sacLenIn = geometry.sacLenIn,
+                            handSize = handSize.name.lowercase(),
+                            antlerShape = "straight",
+                            pipeMaterial = "straight",
+                            fluteStyle = "single",
+                            drones = emptyList(),
+                            a4 = a4,
+                            notes = notes,
+                        )
+                        val document = exportFlutePdf(pdfData)
+                        savePdfAndShare(context, document, flutePdfFileName(pdfData))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Export Workshop PDF Packet", fontWeight = FontWeight.Bold)
                 }
             }
         } else {
