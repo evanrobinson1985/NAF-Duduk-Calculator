@@ -28,6 +28,12 @@ import com.nafduduk.calculator.engine.buildChamberGeometry
 import com.nafduduk.calculator.engine.getNotes
 import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.engine.recommendedBores
+import com.nafduduk.calculator.gcode.GcodeChamber
+import com.nafduduk.calculator.gcode.GcodeMethod
+import com.nafduduk.calculator.gcode.TubeDrillingParams
+import com.nafduduk.calculator.gcode.computeEasyModeParams
+import com.nafduduk.calculator.gcode.generateTubeDrillingGCode
+import com.nafduduk.calculator.gcode.saveGcodeAndShare
 import com.nafduduk.calculator.pdf.FlutePdfData
 import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
@@ -38,6 +44,7 @@ import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
 import com.nafduduk.calculator.ui.common.ResultRow
 import com.nafduduk.calculator.ui.common.SectionCard
+import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
@@ -169,6 +176,44 @@ fun FluteScreen() {
                 ) {
                     Text("Export Workshop PDF Packet", fontWeight = FontWeight.Bold)
                 }
+
+                Button(
+                    onClick = {
+                        val gcodeChamber = GcodeChamber(
+                            lengthIn = geometry.lengthIn,
+                            sacLenIn = geometry.sacLenIn,
+                            boreIn = boreIn,
+                            holes = geometry.holes,
+                            playable = true,
+                            label = "MELODY",
+                            shWIn = geometry.soundHoleWidthIn,
+                            shLIn = geometry.soundHoleLengthIn,
+                        )
+                        val chambers = listOf(gcodeChamber)
+                        val easy = computeEasyModeParams(chambers, GcodeMethod.TUBE)
+                        val gcode = generateTubeDrillingGCode(
+                            TubeDrillingParams(
+                                chambers = chambers,
+                                units = "in",
+                                toolDiameter = easy.toolDiameter,
+                                feedRate = easy.feedRate,
+                                plungeRate = easy.plungeRate,
+                                peckDepth = easy.peckDepth,
+                                safeHeight = easy.safeHeight,
+                                retractHeight = easy.retractHeight,
+                                dialect = "grbl",
+                                spindleSpeed = easy.spindleSpeed,
+                                setupMode = "fixed",
+                            ),
+                        )
+                        saveGcodeAndShare(context, gcode, "naf_flute_${holeCount}hole_tube_drilling.nc")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Export CNC G-Code (Tube Drilling)", fontWeight = FontWeight.Bold)
+                }
+                MutedNote("Drills the sound hole, SAC exit, flue channel, and finger holes into a tube. The split-block milling strategy (cutting the full acoustic nest from raw stock) isn't ported yet — see android/README.md.")
             }
         } else {
             SectionCard {

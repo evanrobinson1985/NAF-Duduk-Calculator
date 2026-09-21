@@ -48,14 +48,44 @@ slice, not a stub.
   - `ui/theme/` — dark gold/bone/card palette lifted directly from the web
     app's inline styles (`bg0/bg1/bg2/border/gold/amber/bone/muted`).
 
+- **PDF export** (`app/src/main/java/com/nafduduk/calculator/pdf/`) — the
+  full 7-page workshop packet (cover, true-scale cutting guide, true-scale
+  drill guide, tuning guide, sanding checklist, finishing checklist,
+  fingering chart), ported line-for-line from `exportPDF()` and its helper
+  functions. `PdfCanvas.kt` is a small jsPDF-style shim over Android's
+  `PdfDocument`/`Canvas` so the page-drawing code reads as a transcription,
+  not a redesign. Exported via `FileProvider` + the share sheet.
+
+- **CNC G-code export** (`app/src/main/java/com/nafduduk/calculator/gcode/`)
+  — the "tube drilling" strategy (`generateTubeDrillingGCode`, ported 1:1):
+  drills the sound hole, SAC exit, flue channel, and finger holes into a
+  tube that already has its internal wall/plug installed. Explicit
+  rapid/feed peck-drilling moves, no G81/G83 canned cycles, so it runs on
+  GRBL as well as LinuxCNC/Mach3/4. `computeEasyModeParams` (auto tool
+  size/feeds/speeds from the flute's own dimensions) is ported too.
+
 ## What's NOT ported yet
 
+- **The "split-block" CNC milling strategy**
+  (`generateSplitBlockGCode` in the jsx, ~1,600 lines across its
+  "symmetric" and "nest-insert" variants) — cutting the full acoustic nest
+  (ramp, flue, SAC, splitting edge) from two glued half-blanks on a mill,
+  as opposed to drilling holes into an already-round tube. Deliberately
+  deferred: it's deeply coupled to the nest-override data model (flue
+  length/depth, ramp angle/curve, backset, wall thickness, breath-hole
+  geometry) that Task "Nest overrides..." below hasn't built yet, and its
+  toolpath math (mouthpiece outline offsetting, alignment-pin planning,
+  ball-nose bore sweeps) is intricate enough that porting it ahead of that
+  data model risked either silently wrong toolpaths or a lot of rework.
+  Revisit once nest overrides + multi-chamber land.
+- The G-Code viewer/toolpath simulator (2D/3D playback of a loaded
+  program) — a Three.js-scene feature, folded into the 3D viewer phase.
 - Multi-chamber (drone) support on the Flute page — currently single
-  melody chamber only.
+  melody chamber only. PDF/G-code export already accept multi-chamber
+  data (`drones: List<PdfDroneSummary>`, `chambers: List<GcodeChamber>`)
+  so this phase is mostly a UI + orchestration job, not new math.
 - Nest overrides, ergonomic hole adjustment UI, harmony builder, antler
   assistant, finger-reach analyzer.
-- PDF build-sheet export.
-- CNC/G-code generation and the G-Code viewer/toolpath simulator.
 - The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
 - Real-time tuner (mic pitch detection), Library (save/load), Flow Studio.
 
