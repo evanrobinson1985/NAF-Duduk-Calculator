@@ -94,6 +94,15 @@ slice, not a stub.
   own key/bore/holes design rather than reading a live bridge from the
   Flute screen), same as the web version's own standalone fallback.
 
+- **Maker assistants** (`engine/AntlerFit.kt`, `engine/FingerReach.kt`,
+  `ui/flute/FluteAssistants.kt`) — `analyzeAntlerFit` (which keys a real
+  measured antler section can be built into), `analyzeFingerReach` (hole-gap
+  comfort checking against adult hand-span thresholds), the Ergonomic Hole
+  Adjustment blend tool (wired to a real `ergoOverride` that now flows
+  through geometry, PDF, and G-code export, same as the web app), and the
+  Harmony Builder drone presets — all ported 1:1 and wired into the Flute
+  screen as toggleable panels.
+
 ## What's NOT ported yet
 
 - **The "split-block" CNC milling strategy**
@@ -114,8 +123,9 @@ slice, not a stub.
   melody chamber only. PDF/G-code export already accept multi-chamber
   data (`drones: List<PdfDroneSummary>`, `chambers: List<GcodeChamber>`)
   so this phase is mostly a UI + orchestration job, not new math.
-- Nest overrides, ergonomic hole adjustment UI, harmony builder, antler
-  assistant, finger-reach analyzer.
+- Nest (SAC exit ramp/flue channel/TSH/fipple) override sliders on the
+  Flute page itself (Flow Studio has its own independent nest-override
+  controls, already ported).
 - The 3D viewer and STL/OBJ/PLY/GLTF mesh export.
 
 These are tracked as separate phases — ask to continue any of them.

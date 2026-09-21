@@ -27,8 +27,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nafduduk.calculator.engine.BORES
+import com.nafduduk.calculator.engine.Curve
 import com.nafduduk.calculator.engine.DRONE_INTERVALS
 import com.nafduduk.calculator.engine.DroneChamber
+import com.nafduduk.calculator.engine.ErgoOverride
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.buildChamberGeometry
@@ -90,15 +92,25 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var fluteStyle by rememberSaveable { mutableStateOf("single") }
     var drones by remember { mutableStateOf(listOf(DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2))) }
 
+    var ergoOverride by remember { mutableStateOf<List<ErgoOverride>?>(null) }
+    // Mirrors FlutePage's own useEffect: any change to the fields that shift
+    // theoretical hole positions invalidates an active ergonomic override.
+    LaunchedEffect(boreIn, noteKey, holeCount, handSizeName) { ergoOverride = null }
+
     val selectedFreq = remember(noteKey, notes) { notes.find { it.name == noteKey }?.freq ?: 440.0 }
     val boreRec = remember(selectedFreq) { recommendedBores(selectedFreq) }
-    val geometry = remember(boreIn, selectedFreq, holeCount, handSize) {
-        buildChamberGeometry(bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize)
+    val geometry = remember(boreIn, selectedFreq, holeCount, handSize, ergoOverride) {
+        buildChamberGeometry(bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize, ergoOverride = ergoOverride)
     }
     val droneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry) {
         if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, "round", geometry) else emptyList()
     }
     val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
+
+    var showErgoAdjust by remember { mutableStateOf(false) }
+    var showAntlerAssistant by remember { mutableStateOf(false) }
+    var showFingerReach by remember { mutableStateOf(false) }
+    var showHarmonyBuilder by remember { mutableStateOf(false) }
 
     LaunchedEffect(loadConfigJson) {
         if (loadConfigJson != null) {
@@ -183,10 +195,39 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
         }
 
         SectionCard {
+            FieldLabel("Antler Selection Assistant")
+            Button(
+                onClick = { showAntlerAssistant = !showAntlerAssistant },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (showAntlerAssistant) "Hide" else "Already have a piece of antler? Check it here") }
+            if (showAntlerAssistant) {
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    AntlerAssistantPanel(
+                        holeCount = holeCount, notes = notes,
+                        onApply = { bore, curve, key -> boreIn = bore; noteKey = key },
+                    )
+                }
+            }
+        }
+
+        SectionCard {
             FieldLabel("Flute Style")
             PillRow {
                 Pill(text = "🎵 Single Flute", selected = fluteStyle == "single", onClick = { fluteStyle = "single" })
                 Pill(text = "🎵🎵 Drone Flute", selected = fluteStyle == "drone", onClick = { fluteStyle = "drone" })
+            }
+            if (fluteStyle == "drone") {
+                Button(
+                    onClick = { showHarmonyBuilder = !showHarmonyBuilder },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text(if (showHarmonyBuilder) "Hide Harmony Builder" else "🎼 Harmony Builder (quick presets)") }
+                if (showHarmonyBuilder) {
+                    Column(modifier = Modifier.padding(top = 12.dp)) {
+                        HarmonyBuilderPanel(boreIn = boreIn, noteKey = noteKey, onApply = { newDrones -> drones = newDrones })
+                    }
+                }
             }
         }
 
@@ -342,6 +383,37 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     HoleTableHeader()
                     geometry.holes.sortedByDescending { it.num }.forEach { h ->
                         HoleRow(num = h.num, interval = h.interval, fromTsh = h.fromTshIn, diameter = h.diameterIn)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { showErgoAdjust = !showErgoAdjust },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (showErgoAdjust) "Hide Ergo" else "Ergonomic Adjust", fontSize = 12.sp) }
+                        Button(
+                            onClick = { showFingerReach = !showFingerReach },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (showFingerReach) "Hide Reach" else "Finger Reach Check", fontSize = 12.sp) }
+                    }
+                }
+
+                if (showErgoAdjust) {
+                    SectionCard {
+                        FieldLabel("Ergonomic Hole Adjustment")
+                        ErgonomicAdjustPanel(
+                            holes = geometry.theoreticalHoles,
+                            applied = ergoOverride != null,
+                            onApply = { override -> ergoOverride = override },
+                            onReset = { ergoOverride = null },
+                        )
+                    }
+                }
+
+                if (showFingerReach) {
+                    SectionCard {
+                        FieldLabel("Finger Reach Analyzer")
+                        FingerReachPanel(holes = geometry.holes, boreIn = boreIn, holeCount = holeCount)
                     }
                 }
 
