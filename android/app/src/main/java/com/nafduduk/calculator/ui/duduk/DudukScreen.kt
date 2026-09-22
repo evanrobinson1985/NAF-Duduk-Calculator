@@ -33,6 +33,9 @@ import com.nafduduk.calculator.library.DudukConfig
 import com.nafduduk.calculator.library.parseDudukConfig
 import com.nafduduk.calculator.library.saveInstrumentToLibrary
 import com.nafduduk.calculator.library.toJson
+import com.nafduduk.calculator.pdf.dudukPdfFileName
+import com.nafduduk.calculator.pdf.exportDudukPdf
+import com.nafduduk.calculator.pdf.savePdfAndShare
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -174,6 +177,25 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             design.holes.forEach { h ->
                 DudukHoleRow(num = h.num, interval = h.interval, thumb = h.thumb, fromReed = h.fromReedIn, diameter = h.diameterIn)
             }
+        }
+
+        SectionCard {
+            FieldLabel("Export")
+            Button(
+                onClick = {
+                    val document = exportDudukPdf(design, a4, notes)
+                    savePdfAndShare(context, document, dudukPdfFileName(design))
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Export Workshop PDF Packet", fontWeight = FontWeight.Bold)
+            }
+            MutedNote(
+                "Three pages: the build sheet with every hole measurement, a true-scale drilling " +
+                    "template to print at 100% and wrap around the tube, and a fingering chart to keep " +
+                    "with the finished instrument.",
+            )
         }
 
         SectionCard {

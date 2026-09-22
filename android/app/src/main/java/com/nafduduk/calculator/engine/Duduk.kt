@@ -127,6 +127,8 @@ data class DudukDesign(
     val reedLenIn: Double,
     val reedDiamIn: Double,
     val totalLenIn: Double,
+    /** The reed's acoustic extension used in the length calculation — reported on the build sheet. */
+    val reedExtIn: Double,
 )
 
 /**
@@ -165,5 +167,6 @@ fun buildDudukDesignForKey(
         reedLenIn = reedLenIn,
         reedDiamIn = reedDiam,
         totalLenIn = tubeLen + reedLenIn,
+        reedExtIn = reedExtIn,
     )
 }
