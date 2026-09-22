@@ -239,6 +239,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var savedMsg by remember { mutableStateOf("") }
     var showTuner by remember { mutableStateOf(false) }
     var show3dPreview by remember { mutableStateOf(false) }
+    var showTuningAssistant by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -388,6 +389,26 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 curve = templateCurve,
                 modifier = Modifier.padding(top = 8.dp),
             )
+        }
+
+        SectionCard {
+            FieldLabel("🧭 Progressive Tuning Assistant")
+            MutedNote("Step-by-step drilling guide — like GPS for tuning.")
+            Button(
+                onClick = { showTuningAssistant = !showTuningAssistant },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(if (showTuningAssistant) "Hide assistant" else "Walk through the holes one at a time") }
+            if (showTuningAssistant) {
+                Column(modifier = Modifier.padding(top = 10.dp)) {
+                    ProgressiveTuningAssistant(
+                        holes = effGeometry.holes,
+                        holeCount = holeCount,
+                        rootFreq = selectedFreq,
+                        notes = notes,
+                    )
+                }
+            }
         }
 
         SectionCard {

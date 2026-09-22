@@ -1,13 +1,6 @@
 package com.nafduduk.calculator.ui.tuner
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,37 +17,23 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import com.nafduduk.calculator.engine.Note
-import com.nafduduk.calculator.engine.autoCorrelatePitch
-import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
-import kotlin.math.min
-
-private const val SAMPLE_RATE = 44100
-private const val FRAME_SIZE = 2048
 
 /**
  * Ported from RealTuner: autocorrelation pitch detection over a live mic
@@ -65,84 +44,15 @@ private const val FRAME_SIZE = 2048
  */
 @Composable
 fun TunerPanel(targetNoteDefault: String, notes: List<Note>, onClose: () -> Unit) {
-    val context = LocalContext.current
-    var hasPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
-    }
-    // Declared before permissionLauncher: the launcher's result callback flips
-    // it on, and a Kotlin local can't be captured before its declaration.
-    var isListening by remember { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasPermission = granted
-        if (granted) isListening = true
-    }
-
-    var detectedNote by remember { mutableStateOf("--") }
-    var detectedFreq by remember { mutableStateOf(0) }
-    var detectedCents by remember { mutableStateOf(0) }
-    var volume by remember { mutableFloatStateOf(0f) }
+    // One shared microphone loop — see ui/tuner/MicPitch.kt. The Progressive
+    // Tuning Assistant uses the same one.
+    val mic = rememberMicPitch(notes)
     var targetNote by remember { mutableStateOf(targetNoteDefault) }
-    var micError by remember { mutableStateOf<String?>(null) }
 
-    // The recording loop — cancelled automatically whenever isListening flips
-    // to false OR this composable leaves composition (tab switch away),
-    // which also releases the mic; no manual visibility check needed the
-    // way the web version's rootRef.clientWidth trick required.
-    LaunchedEffect(isListening) {
-        if (!isListening) return@LaunchedEffect
-        withContext(Dispatchers.Default) {
-            val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            if (minBuf <= 0) {
-                micError = "Microphone unavailable on this device."
-                return@withContext
-            }
-            var audioRecord: AudioRecord? = null
-            try {
-                @Suppress("MissingPermission")
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT, min(minBuf * 2, FRAME_SIZE * 2 * 4),
-                )
-                audioRecord.startRecording()
-                val shortBuf = ShortArray(FRAME_SIZE)
-                val floatBuf = FloatArray(FRAME_SIZE)
-                while (isActive && isListening) {
-                    val read = audioRecord.read(shortBuf, 0, FRAME_SIZE)
-                    if (read <= 0) continue
-                    var maxA = 0f
-                    for (i in 0 until read) {
-                        val f = shortBuf[i] / 32768f
-                        floatBuf[i] = f
-                        val a = abs(f)
-                        if (a > maxA) maxA = a
-                    }
-                    volume = min(maxA * 120f, 100f)
-
-                    val pitch = autoCorrelatePitch(floatBuf.copyOf(read), SAMPLE_RATE)
-                    if (pitch > 60 && pitch < 2500) {
-                        val ni = nearestNote(pitch, notes)
-                        detectedNote = ni.name
-                        detectedFreq = Math.round(pitch).toInt()
-                        detectedCents = ni.cents
-                    } else {
-                        detectedNote = "--"; detectedFreq = 0; detectedCents = 0
-                    }
-                }
-            } catch (e: SecurityException) {
-                micError = "Microphone permission denied."
-            } catch (e: Exception) {
-                micError = "Microphone error: ${e.message}"
-            } finally {
-                try { audioRecord?.stop() } catch (e: Exception) { /* already stopped */ }
-                audioRecord?.release()
-                detectedNote = "--"; detectedFreq = 0; detectedCents = 0; volume = 0f
-            }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { isListening = false }
-    }
+    val detectedNote = mic.noteName
+    val detectedFreq = Math.round(mic.freqHz).toInt()
+    val detectedCents = mic.cents
+    val volume = mic.volume
 
     val inTune = detectedNote != "--" && detectedNote == targetNote && abs(detectedCents) < 12
     val cc = if (abs(detectedCents) < 10) Color(0xFF4ADE80) else if (abs(detectedCents) < 30) Color(0xFFFBBF24) else Color(0xFFF87171)
@@ -249,25 +159,16 @@ fun TunerPanel(targetNoteDefault: String, notes: List<Note>, onClose: () -> Unit
         }
 
         Button(
-            onClick = {
-                if (isListening) {
-                    isListening = false
-                } else if (hasPermission) {
-                    micError = null
-                    isListening = true
-                } else {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                }
-            },
+            onClick = { mic.toggle() },
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isListening) Color(0xFF7F1D1D) else Gold,
-                contentColor = if (isListening) Color(0xFFFCA5A5) else Color(0xFF0F0801),
+                containerColor = if (mic.listening) Color(0xFF7F1D1D) else Gold,
+                contentColor = if (mic.listening) Color(0xFFFCA5A5) else Color(0xFF0F0801),
             ),
             modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
         ) {
-            Text(if (isListening) "⏹ Stop Microphone" else "▶ Start Microphone", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(if (mic.listening) "⏹ Stop Microphone" else "▶ Start Microphone", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
-        micError?.let { MutedNote(it) }
+        mic.error?.let { MutedNote(it) }
         Text(
             "Requires microphone permission",
             color = Color(0xFF4A3A26),
