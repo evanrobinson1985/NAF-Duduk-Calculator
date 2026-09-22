@@ -107,18 +107,19 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var mouthpieceMarginOverride by rememberSaveable { mutableStateOf<Double?>(null) }
     // Nest voicing. Read by BOTH the 3D preview and the split-block CAM, so
     // what you see is what gets cut.
-    var nestOverrides by remember { mutableStateOf(NestOverrides()) }
+    var nestOverrides by rememberSaveable(stateSaver = NestOverridesSaver) { mutableStateOf(NestOverrides()) }
     // Only the drilling template's own drawing — the body bow is a shaping
     // step, not something the acoustics or the CAM paths depend on.
     var templateCurve by rememberSaveable { mutableStateOf(Curve.STRAIGHT) }
 
-    // "single" | "drone". Drone-chamber state isn't rememberSaveable (no Saver
-    // written for the DroneChamber list yet) so it resets on a configuration
-    // change/process death — an accepted simplification for this phase.
     var fluteStyle by rememberSaveable { mutableStateOf("single") }
-    var drones by remember { mutableStateOf(listOf(DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2))) }
+    // Saved across rotation and process death (see FluteSavers.kt): these
+    // carry real work that is not otherwise recoverable.
+    var drones by rememberSaveable(stateSaver = DroneChamberListSaver) {
+        mutableStateOf(listOf(DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2)))
+    }
 
-    var ergoOverride by remember { mutableStateOf<List<ErgoOverride>?>(null) }
+    var ergoOverride by rememberSaveable(stateSaver = ErgoOverrideListSaver) { mutableStateOf<List<ErgoOverride>?>(null) }
     // Mirrors FlutePage's own useEffect: any change to the fields that shift
     // theoretical hole positions invalidates an active ergonomic override.
     LaunchedEffect(boreIn, noteKey, holeCount, handSizeName, holeShapeKey, a4) { ergoOverride = null }
