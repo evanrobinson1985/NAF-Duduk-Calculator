@@ -1,0 +1,827 @@
+package com.nafduduk.calculator.ui.flute
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.nafduduk.calculator.audio.NoteSamplePlayer
+import com.nafduduk.calculator.audio.hasNoteSample
+import com.nafduduk.calculator.engine.BORES
+import com.nafduduk.calculator.engine.Curve
+import com.nafduduk.calculator.engine.DRONE_INTERVALS
+import com.nafduduk.calculator.engine.DroneChamber
+import com.nafduduk.calculator.engine.ErgoOverride
+import com.nafduduk.calculator.engine.FluteConst
+import com.nafduduk.calculator.engine.HOLE_SHAPES
+import com.nafduduk.calculator.engine.NestOverrides
+import com.nafduduk.calculator.engine.HandSize
+import com.nafduduk.calculator.engine.SCALE_CONFIGS
+import com.nafduduk.calculator.engine.auditFluteChambers
+import com.nafduduk.calculator.engine.buildChamberGeometry
+import com.nafduduk.calculator.engine.buildDroneResults
+import com.nafduduk.calculator.engine.getNotes
+import com.nafduduk.calculator.engine.nearestNote
+import com.nafduduk.calculator.engine.recommendedBores
+import com.nafduduk.calculator.gcode.GcodeChamber
+import com.nafduduk.calculator.gcode.saveGcodeAndShare
+import com.nafduduk.calculator.library.FluteConfig
+import com.nafduduk.calculator.library.parseFluteConfig
+import com.nafduduk.calculator.library.saveInstrumentToLibrary
+import com.nafduduk.calculator.library.toJson
+import com.nafduduk.calculator.pdf.FlutePdfData
+import com.nafduduk.calculator.pdf.PdfDroneSummary
+import com.nafduduk.calculator.pdf.exportFlutePdf
+import com.nafduduk.calculator.pdf.flutePdfFileName
+import com.nafduduk.calculator.pdf.savePdfAndShare
+import com.nafduduk.calculator.ui.common.FieldLabel
+import com.nafduduk.calculator.ui.template.DrillingTemplate
+import com.nafduduk.calculator.ui.template.TemplateChamber
+import com.nafduduk.calculator.ui.common.MutedNote
+import com.nafduduk.calculator.ui.common.Pill
+import com.nafduduk.calculator.ui.common.PillRow
+import com.nafduduk.calculator.ui.common.ResultRow
+import com.nafduduk.calculator.ui.common.SectionCard
+import com.nafduduk.calculator.ui.common.ToggleNote
+import com.nafduduk.calculator.ui.theme.Bg2
+import com.nafduduk.calculator.ui.theme.Bone
+import com.nafduduk.calculator.ui.theme.Gold
+import com.nafduduk.calculator.ui.theme.Muted
+import com.nafduduk.calculator.ui.tuner.TunerPanel
+import com.nafduduk.calculator.ui.viewer3d.Viewer3DPanel
+import com.nafduduk.calculator.util.jsFmt
+import com.nafduduk.calculator.util.jsFmtIn
+
+/**
+ * Ported from FlutePage's melody-chamber calculator (single chamber): key
+ * picker -> bore picker (with recommendation) -> hole count -> hand size ->
+ * live results, wired to the ported buildChamberGeometry engine so the
+ * numbers match the web app exactly. Multi-chamber drones, nest overrides,
+ * 3D preview, PDF/CNC export are separate, larger phases (see repo TODOs).
+ */
+@Composable
+fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {}) {
+    val context = LocalContext.current
+
+    // Concert pitch. Every note frequency, and therefore every tube length and
+    // hole position, is derived from it — so it belongs at the top, above the
+    // key picker, the way the web source puts it in the page header.
+    var a4 by rememberSaveable { mutableStateOf(440.0) }
+    val notes = remember(a4) { getNotes(a4) }
+    val standardNotes = remember(notes) { notes.filter { !it.advanced } }
+
+    var noteKey by rememberSaveable { mutableStateOf("A4") }
+    var boreIn by rememberSaveable { mutableStateOf(0.625) }
+    var holeCount by rememberSaveable { mutableStateOf(6) }
+    var handSizeName by rememberSaveable { mutableStateOf(HandSize.AVERAGE.name) }
+    val handSize = remember(handSizeName) { HandSize.valueOf(handSizeName) }
+
+    // Finger-hole shape: changes the calculated diameters by the shape's
+    // acoustic factor (round is the 1.0 baseline), and the 3D preview cuts
+    // the matching cutter.
+    var holeShapeKey by rememberSaveable { mutableStateOf("round") }
+    // Nulls mean "use the bore-derived formula", matching the web source's
+    // own Number.isFinite() checks.
+    var sacLenOverride by rememberSaveable { mutableStateOf<Double?>(null) }
+    var mouthpieceMarginOverride by rememberSaveable { mutableStateOf<Double?>(null) }
+    // Nest voicing. Read by BOTH the 3D preview and the split-block CAM, so
+    // what you see is what gets cut.
+    var nestOverrides by rememberSaveable(stateSaver = NestOverridesSaver) { mutableStateOf(NestOverrides()) }
+    // Only the drilling template's own drawing — the body bow is a shaping
+    // step, not something the acoustics or the CAM paths depend on.
+    var templateCurve by rememberSaveable { mutableStateOf(Curve.STRAIGHT) }
+
+    var fluteStyle by rememberSaveable { mutableStateOf("single") }
+    // Saved across rotation and process death (see FluteSavers.kt): these
+    // carry real work that is not otherwise recoverable.
+    var drones by rememberSaveable(stateSaver = DroneChamberListSaver) {
+        mutableStateOf(listOf(DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2)))
+    }
+
+    var ergoOverride by rememberSaveable(stateSaver = ErgoOverrideListSaver) { mutableStateOf<List<ErgoOverride>?>(null) }
+    // Mirrors FlutePage's own useEffect: any change to the fields that shift
+    // theoretical hole positions invalidates an active ergonomic override.
+    LaunchedEffect(boreIn, noteKey, holeCount, handSizeName, holeShapeKey, a4) { ergoOverride = null }
+
+    val selectedFreq = remember(noteKey, notes) { notes.find { it.name == noteKey }?.freq ?: 440.0 }
+    val boreRec = remember(selectedFreq) { recommendedBores(selectedFreq) }
+    val geometry = remember(boreIn, selectedFreq, holeCount, handSize, ergoOverride, holeShapeKey, sacLenOverride, mouthpieceMarginOverride) {
+        buildChamberGeometry(
+            bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize,
+            holeShapeKey = holeShapeKey, ergoOverride = ergoOverride,
+            sacLenInOverride = sacLenOverride, mouthpieceMarginInOverride = mouthpieceMarginOverride,
+        )
+    }
+    val rawDroneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry, holeShapeKey) {
+        if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, holeShapeKey, geometry) else emptyList()
+    }
+
+    // Geometry validation runs by itself on every upstream change, exactly as
+    // the web source does it: anything that disagrees with the shared
+    // formulas is corrected on the spot and the corrections are listed, and
+    // the corrected geometry — not the flagged one — is what the table, the
+    // 3D preview, the PDF and the G-code all read. `fixUndone` lets a maker
+    // keep their own numbers, and resets on the next edit so it can never
+    // silently outlive the values it was pressed for.
+    val audit = remember(geometry, rawDroneResults) { auditFluteChambers(geometry, rawDroneResults) }
+    var fixUndone by remember { mutableStateOf(false) }
+    LaunchedEffect(audit) { fixUndone = false }
+    val effGeometry = if (fixUndone) geometry else audit.melody
+    val droneResults = if (fixUndone) rawDroneResults else audit.drones
+
+    val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
+
+    // The chambers the on-screen drilling template draws, from the same
+    // audited geometry the exports use.
+    val templateChambers = remember(effGeometry, droneResults, fluteStyle, boreIn, selectedFreq, notes) {
+        listOf(
+            TemplateChamber(
+                label = "MELODY", boreIn = boreIn, sacLenIn = effGeometry.sacLenIn,
+                lengthIn = effGeometry.lengthIn, holes = effGeometry.holes, playable = true,
+                note = nearestNote(selectedFreq, notes),
+                breathHoleWidthIn = FluteConst.breathHoleWidth(boreIn),
+            ),
+        ) + if (fluteStyle == "drone") {
+            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                TemplateChamber(
+                    label = if (dr.playable) "CHAMBER ${i + 2}" else "DRONE ${i + 1}",
+                    boreIn = dr.boreIn, sacLenIn = dr.sacLenIn, lengthIn = dr.lengthIn,
+                    holes = dr.holes, playable = dr.playable, note = dr.note,
+                )
+            }
+        } else {
+            emptyList()
+        }
+    }
+
+    // The chamber list every CAM export reads, built once from the audited
+    // geometry: melody first, then any drone that came out buildable.
+    val exportChambers = remember(effGeometry, droneResults, boreIn, fluteStyle, nestOverrides) {
+        listOf(
+            GcodeChamber(
+                lengthIn = effGeometry.lengthIn,
+                sacLenIn = effGeometry.sacLenIn,
+                boreIn = boreIn,
+                holes = effGeometry.holes,
+                playable = true,
+                label = "MELODY",
+                shWIn = effGeometry.soundHoleWidthIn,
+                shLIn = effGeometry.soundHoleLengthIn,
+                nestOverrides = nestOverrides,
+            ),
+        ) + if (fluteStyle == "drone") {
+            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                GcodeChamber(
+                    lengthIn = dr.lengthIn,
+                    sacLenIn = dr.sacLenIn,
+                    boreIn = dr.boreIn,
+                    holes = dr.holes,
+                    playable = dr.playable,
+                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
+                    shWIn = dr.shWIn,
+                    shLIn = dr.shLIn,
+                    nestOverrides = nestOverrides,
+                )
+            }
+        } else {
+            emptyList()
+        }
+    }
+
+    var showErgoAdjust by remember { mutableStateOf(false) }
+    var showAntlerAssistant by remember { mutableStateOf(false) }
+    var showFingerReach by remember { mutableStateOf(false) }
+    var showHarmonyBuilder by remember { mutableStateOf(false) }
+
+    LaunchedEffect(loadConfigJson) {
+        if (loadConfigJson != null) {
+            parseFluteConfig(loadConfigJson)?.let { c ->
+                noteKey = c.noteKey
+                boreIn = c.boreIn
+                holeCount = c.holeCount
+                handSizeName = c.handSize
+                fluteStyle = c.fluteStyle
+                drones = c.drones
+                holeShapeKey = c.holeShapeKey
+                a4 = c.a4
+                sacLenOverride = c.sacLenIn
+                mouthpieceMarginOverride = c.mouthpieceMarginIn
+                // Applied last: changing the fields above resets an active
+                // ergonomic override, so restoring it first would lose it.
+                ergoOverride = c.ergoOverride
+            }
+            onConfigLoaded()
+        }
+    }
+
+    var saveOpen by remember { mutableStateOf(false) }
+    var saveName by remember { mutableStateOf("") }
+    var savedMsg by remember { mutableStateOf("") }
+    var showTuner by remember { mutableStateOf(false) }
+    var show3dPreview by remember { mutableStateOf(false) }
+    var showTuningAssistant by remember { mutableStateOf(false) }
+    var playSamples by rememberSaveable { mutableStateOf(true) }
+
+    // A sample outliving the screen that started it would keep sounding over
+    // whatever the person moved on to, and hold a codec while it did.
+    DisposableEffect(Unit) { onDispose { NoteSamplePlayer.stop() } }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SectionCard {
+            FieldLabel("Tuning Reference")
+            PillRow {
+                listOf(440.0, 432.0).forEach { hz ->
+                    Pill(text = "A4 = ${jsFmt(hz, 0)} Hz", selected = a4 == hz, onClick = { a4 = hz })
+                }
+            }
+            if (a4 != 440.0) {
+                Text(
+                    "${jsFmt(a4, 0)} Hz — every tube length and hole position below is recalculated.",
+                    color = androidx.compose.ui.graphics.Color(0xFFD4A05A),
+                    fontSize = 11.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+
+        SectionCard {
+            FieldLabel("Root Note (Key)")
+            PillRow {
+                standardNotes.forEach { n ->
+                    Pill(
+                        // A dot marks the keys you can hear. Nine of the
+                        // original range have no recording (see
+                        // audio/NoteSamples.kt), and silently doing nothing
+                        // on a tap reads as a bug.
+                        text = if (hasNoteSample(n.name)) "${n.name} ♪" else n.name,
+                        selected = n.name == noteKey,
+                        onClick = {
+                            noteKey = n.name
+                            if (playSamples) NoteSamplePlayer.play(context, n.name)
+                        },
+                    )
+                }
+            }
+            ToggleNote(
+                checked = playSamples,
+                onCheckedChange = { playSamples = it; if (!it) NoteSamplePlayer.stop() },
+                label = "Play a recorded flute note when a key is picked (♪ = recorded)",
+            )
+            Button(
+                onClick = { showTuner = !showTuner },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(if (showTuner) "🎤 Hide Tuner" else "🎤 Real-Time Tuner") }
+        }
+
+        if (showTuner) {
+            TunerPanel(targetNoteDefault = noteKey, notes = notes, onClose = { showTuner = false })
+        }
+
+        SectionCard {
+            FieldLabel("Bore Diameter")
+            PillRow {
+                boreRec.options.forEach { opt ->
+                    val isRec = opt.bore.label == boreRec.best.bore.label
+                    Pill(
+                        text = opt.bore.label + if (isRec) " ★" else "",
+                        selected = kotlin.math.abs(opt.bore.valIn - boreIn) < 1e-9,
+                        onClick = { boreIn = opt.bore.valIn },
+                    )
+                }
+            }
+            MutedNote("★ recommended bore for this key — lands closest to the 10\"-24\" comfortable-hold sweet spot.")
+        }
+
+        SectionCard {
+            FieldLabel("Number of Finger Holes")
+            PillRow {
+                (1..7).forEach { n ->
+                    Pill(text = n.toString(), selected = n == holeCount, onClick = { holeCount = n })
+                }
+            }
+            SCALE_CONFIGS[holeCount]?.let { MutedNote(it.name) }
+        }
+
+        SectionCard {
+            FieldLabel("Hand Size")
+            PillRow {
+                HandSize.entries.forEach { hs ->
+                    Pill(
+                        text = hs.name.lowercase().replaceFirstChar { it.titlecase() },
+                        selected = hs == handSize,
+                        onClick = { handSizeName = hs.name },
+                    )
+                }
+            }
+        }
+
+        SectionCard {
+            FieldLabel("Finger Hole Shape")
+            MutedNote("Changes the calculated diameter — round is the baseline.")
+            PillRow {
+                HOLE_SHAPES.forEach { (key, shape) ->
+                    Pill(
+                        text = "${shape.icon} ${shape.label}",
+                        selected = key == holeShapeKey,
+                        onClick = { holeShapeKey = key },
+                    )
+                }
+            }
+            HOLE_SHAPES[holeShapeKey]?.let { shape ->
+                MutedNote(shape.desc)
+                if (holeShapeKey != "round") {
+                    Text(
+                        "How to cut this shape: ${shape.howTo}",
+                        color = Bone, fontSize = 11.5.sp, lineHeight = 18.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .background(Bg2, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        }
+
+        SectionCard {
+            FieldLabel("Nest & Blank Overrides")
+            MutedNote(
+                "Both default to the bore-derived formula. The SAC is a plenum — its length shapes response " +
+                    "and blank length, not pitch — so it is a maker's call; the mouthpiece margin is spare " +
+                    "stock beyond L + SAC for trimming the mouthpiece end.",
+            )
+            OverrideField(
+                label = "SAC length (in)",
+                value = sacLenOverride,
+                autoValue = FluteConst.autoSacLen(boreIn),
+                onValue = { sacLenOverride = it },
+            )
+            OverrideField(
+                label = "Mouthpiece margin (in)",
+                value = mouthpieceMarginOverride,
+                autoValue = FluteConst.MOUTHPIECE_MARGIN,
+                onValue = { mouthpieceMarginOverride = it },
+            )
+        }
+
+        SectionCard {
+            FieldLabel("Drilling Template")
+            MutedNote(
+                "Every chamber at true relative scale, with each hole's distance from the sound hole (TSH). " +
+                    "A curved body is measured along the bore centerline, not the chord.",
+            )
+            PillRow {
+                Curve.entries.forEach { c ->
+                    Pill(
+                        text = c.name.lowercase().replaceFirstChar { it.titlecase() },
+                        selected = c == templateCurve,
+                        onClick = { templateCurve = c },
+                    )
+                }
+            }
+            DrillingTemplate(
+                chambers = templateChambers,
+                curve = templateCurve,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        SectionCard {
+            FieldLabel("🧭 Progressive Tuning Assistant")
+            MutedNote("Step-by-step drilling guide — like GPS for tuning.")
+            Button(
+                onClick = { showTuningAssistant = !showTuningAssistant },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            ) { Text(if (showTuningAssistant) "Hide assistant" else "Walk through the holes one at a time") }
+            if (showTuningAssistant) {
+                Column(modifier = Modifier.padding(top = 10.dp)) {
+                    ProgressiveTuningAssistant(
+                        holes = effGeometry.holes,
+                        holeCount = holeCount,
+                        rootFreq = selectedFreq,
+                        notes = notes,
+                    )
+                }
+            }
+        }
+
+        SectionCard {
+            NestOverridePanel(
+                boreIn = boreIn,
+                soundHoleWidthIn = effGeometry.soundHoleWidthIn,
+                overrides = nestOverrides,
+                onChange = { nestOverrides = it },
+            )
+        }
+
+        SectionCard {
+            FieldLabel("Antler Selection Assistant")
+            Button(
+                onClick = { showAntlerAssistant = !showAntlerAssistant },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (showAntlerAssistant) "Hide" else "Already have a piece of antler? Check it here") }
+            if (showAntlerAssistant) {
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    AntlerAssistantPanel(
+                        holeCount = holeCount, notes = notes,
+                        onApply = { bore, curve, key -> boreIn = bore; noteKey = key },
+                    )
+                }
+            }
+        }
+
+        SectionCard {
+            FieldLabel("Flute Style")
+            PillRow {
+                Pill(text = "🎵 Single Flute", selected = fluteStyle == "single", onClick = { fluteStyle = "single" })
+                Pill(text = "🎵🎵 Drone Flute", selected = fluteStyle == "drone", onClick = { fluteStyle = "drone" })
+            }
+            if (fluteStyle == "drone") {
+                Button(
+                    onClick = { showHarmonyBuilder = !showHarmonyBuilder },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) { Text(if (showHarmonyBuilder) "Hide Harmony Builder" else "🎼 Harmony Builder (quick presets)") }
+                if (showHarmonyBuilder) {
+                    Column(modifier = Modifier.padding(top = 12.dp)) {
+                        HarmonyBuilderPanel(boreIn = boreIn, noteKey = noteKey, onApply = { newDrones -> drones = newDrones })
+                    }
+                }
+            }
+        }
+
+        if (fluteStyle == "drone") {
+            drones.forEachIndexed { i, d ->
+                SectionCard {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        FieldLabel("Chamber ${i + 2} — ${if (d.playable) "Playable" else "Drone"}")
+                        if (drones.size > 1) {
+                            Text(
+                                "✕ Remove",
+                                color = Muted,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .padding(bottom = 8.dp)
+                                    .clickable { drones = drones.filterIndexed { idx, _ -> idx != i } },
+                            )
+                        }
+                    }
+                    PillRow {
+                        BORES.forEach { b ->
+                            Pill(
+                                text = b.label,
+                                selected = kotlin.math.abs(b.valIn - d.boreIn) < 1e-9,
+                                onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(boreIn = b.valIn) else dd } },
+                            )
+                        }
+                    }
+                    PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                        Pill(text = "Drone", selected = !d.playable, onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(playable = false) else dd } })
+                        Pill(text = "Playable", selected = d.playable, onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(playable = true, noteKey = dd.noteKey ?: noteKey) else dd } })
+                    }
+                    if (!d.playable) {
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            DRONE_INTERVALS.forEachIndexed { ii, di ->
+                                Pill(
+                                    text = di.label,
+                                    selected = ii == d.intervalIdx,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(intervalIdx = ii) else dd } },
+                                )
+                            }
+                        }
+                    } else {
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            standardNotes.forEach { n ->
+                                Pill(
+                                    text = n.name,
+                                    selected = n.name == d.noteKey,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(noteKey = n.name) else dd } },
+                                )
+                            }
+                        }
+                        PillRow(modifier = Modifier.padding(top = 6.dp)) {
+                            (1..7).forEach { hc ->
+                                Pill(
+                                    text = hc.toString(),
+                                    selected = hc == d.holeCount,
+                                    onClick = { drones = drones.mapIndexed { idx, dd -> if (idx == i) dd.copy(holeCount = hc) else dd } },
+                                )
+                            }
+                        }
+                    }
+                    droneResults.getOrNull(i)?.let { dr ->
+                        if (dr.lengthIn > 0) {
+                            ResultRow("Length (L)", fmtIn(dr.lengthIn))
+                            dr.totalLenIn?.let { ResultRow("Total length", fmtIn(it)) }
+                            dr.note?.let { ResultRow("Note", it.name) }
+                        } else {
+                            MutedNote("This bore + interval doesn't produce a buildable length.")
+                        }
+                    }
+                }
+            }
+
+            if (drones.size < 3) {
+                Button(
+                    onClick = { drones = drones + DroneChamber(boreIn = boreIn, intervalIdx = 0, playable = false, holeCount = 2, noteKey = noteKey) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("+ Add Chamber (${drones.size + 1} of 4 max)") }
+            }
+
+            if (allDronesValid) {
+                val totalBoreWidth = boreIn + droneResults.sumOf { it.boreIn }
+                SectionCard {
+                    FieldLabel("Multi-Chamber Summary")
+                    ResultRow("Total chamber count", "${1 + droneResults.size} (${if (1 + droneResults.size == 4) "maximum" else "of 4 max"})")
+                    ResultRow("Combined bore width", fmtIn3(totalBoreWidth))
+                    MutedNote("All bores may fit side-by-side in one wide piece of stock — look for stock at least ${fmtIn3(totalBoreWidth * 1.4)} across.")
+                }
+            }
+        }
+
+        if (effGeometry.playable) {
+            SectionCard {
+                FieldLabel("Results")
+                ResultRow("Tube length (L)", fmtIn(effGeometry.lengthIn))
+                effGeometry.totalLenIn?.let { ResultRow("Total blank length", fmtIn(it)) }
+                ResultRow("SAC (slow-air chamber) length", fmtIn(effGeometry.sacLenIn))
+                ResultRow("Sound-hole width", fmtIn(effGeometry.soundHoleWidthIn))
+                ResultRow("Sound-hole length", fmtIn(effGeometry.soundHoleLengthIn))
+            }
+
+            SectionCard {
+                FieldLabel("3D Preview & Model Export")
+                Button(
+                    onClick = { show3dPreview = !show3dPreview },
+                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (show3dPreview) "Hide 3D Preview" else "🧊 Show 3D Preview & Export") }
+                if (show3dPreview) {
+                    Column(modifier = Modifier.padding(top = 12.dp)) {
+                        Viewer3DPanel(
+                            geometry = effGeometry,
+                            fileBaseName = "naf_flute_${holeCount}hole_${noteKey.replace("#", "sharp")}",
+                            holeShapeKey = holeShapeKey,
+                            nest = nestOverrides,
+                        )
+                    }
+                }
+            }
+
+            SectionCard {
+                FieldLabel("Save This Design")
+                if (!saveOpen) {
+                    Button(
+                        onClick = { saveOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("💾 Save to Library") }
+                } else {
+                    OutlinedTextField(
+                        value = saveName,
+                        onValueChange = { saveName = it },
+                        placeholder = { Text("e.g. \"My Favorite G Minor\"") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Bone, unfocusedTextColor = Bone,
+                            focusedBorderColor = Gold, unfocusedBorderColor = com.nafduduk.calculator.ui.theme.Border,
+                        ),
+                    )
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val rootNote = nearestNote(selectedFreq, notes)
+                                val config = FluteConfig(
+                                    noteKey = noteKey, boreIn = boreIn, holeCount = holeCount, handSize = handSizeName,
+                                    fluteStyle = fluteStyle, drones = drones, summaryRootNote = rootNote.name,
+                                    summaryMaterial = "straight", summaryIsDrone = fluteStyle == "drone",
+                                    holeShapeKey = holeShapeKey, ergoOverride = ergoOverride, a4 = a4,
+                                    sacLenIn = sacLenOverride, mouthpieceMarginIn = mouthpieceMarginOverride,
+                                )
+                                val entry = saveInstrumentToLibrary(context, saveName, "flute", config.toJson())
+                                savedMsg = if (entry != null) "Saved as \"${entry.name}\"" else "Couldn't save — device storage may be full."
+                                if (entry != null) { saveName = ""; saveOpen = false }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Save") }
+                        Button(
+                            onClick = { saveOpen = false; saveName = "" },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Muted),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Cancel") }
+                    }
+                }
+                if (savedMsg.isNotEmpty()) MutedNote(savedMsg)
+            }
+
+            if (effGeometry.holes.isNotEmpty()) {
+                SectionCard {
+                    FieldLabel("Finger Holes (from mouth end / TSH)")
+                    HoleTableHeader()
+                    effGeometry.holes.sortedByDescending { it.num }.forEach { h ->
+                        HoleRow(num = h.num, interval = h.interval, fromTsh = h.fromTshIn, diameter = h.diameterIn)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { showErgoAdjust = !showErgoAdjust },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (showErgoAdjust) "Hide Ergo" else "Ergonomic Adjust", fontSize = 12.sp) }
+                        Button(
+                            onClick = { showFingerReach = !showFingerReach },
+                            colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (showFingerReach) "Hide Reach" else "Finger Reach Check", fontSize = 12.sp) }
+                    }
+                }
+
+                if (showErgoAdjust) {
+                    SectionCard {
+                        FieldLabel("Ergonomic Hole Adjustment")
+                        ErgonomicAdjustPanel(
+                            // Deliberately the raw geometry: these are the
+                            // theoretical positions the adjustment edits FROM,
+                            // so they must not themselves be audit-corrected.
+                            holes = geometry.theoreticalHoles,
+                            applied = ergoOverride != null,
+                            onApply = { override -> ergoOverride = override },
+                            onReset = { ergoOverride = null },
+                        )
+                    }
+                }
+
+                if (showFingerReach) {
+                    SectionCard {
+                        FieldLabel("Finger Reach Analyzer")
+                        FingerReachPanel(holes = effGeometry.holes, boreIn = boreIn, holeCount = holeCount)
+                    }
+                }
+
+                GeometryAuditBanner(
+                    audit = audit,
+                    fixUndone = fixUndone,
+                    onUndo = { fixUndone = true },
+                    onReapply = { fixUndone = false },
+                )
+
+                Button(
+                    onClick = {
+                        val rootNote = nearestNote(selectedFreq, notes)
+                        val validDrones = if (fluteStyle == "drone") {
+                            droneResults.filter { it.lengthIn > 0 && it.note != null }.map { dr ->
+                                PdfDroneSummary(
+                                    playable = dr.playable,
+                                    holeCount = dr.holeCount,
+                                    note = dr.note!!,
+                                    boreIn = dr.boreIn,
+                                    totalLenIn = dr.totalLenIn ?: dr.lengthIn,
+                                    lengthIn = dr.lengthIn,
+                                    sacLenIn = dr.sacLenIn,
+                                    holes = dr.holes,
+                                    droneIntervalLabel = dr.droneInterval?.label ?: "",
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        val pdfData = FlutePdfData(
+                            boreIn = boreIn,
+                            lengthIn = effGeometry.lengthIn,
+                            holes = effGeometry.holes,
+                            holeCount = holeCount,
+                            rootNote = rootNote,
+                            totalLenIn = effGeometry.totalLenIn ?: effGeometry.lengthIn,
+                            sacLenIn = effGeometry.sacLenIn,
+                            handSize = handSize.name.lowercase(),
+                            antlerShape = "straight",
+                            pipeMaterial = "straight",
+                            fluteStyle = fluteStyle,
+                            drones = validDrones,
+                            a4 = a4,
+                            notes = notes,
+                        )
+                        val document = exportFlutePdf(pdfData)
+                        savePdfAndShare(context, document, flutePdfFileName(pdfData))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = androidx.compose.ui.graphics.Color(0xFF0F0801)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Export Workshop PDF Packet", fontWeight = FontWeight.Bold)
+                }
+
+                FieldLabel("CNC Machining")
+                MutedNote(
+                    "Both generators run off the audited geometry above. Curve is straight here — the body " +
+                        "bow is a 3D-preview and mesh-export feature; the CAM paths are cut flat and the blank " +
+                        "is bent or carved to the bow afterwards.",
+                )
+                CncExportPanel(
+                    chambers = exportChambers,
+                    curve = Curve.STRAIGHT,
+                    droneBody = "separate",
+                    onExport = { fileName, gcode -> saveGcodeAndShare(context, gcode, fileName) },
+                )
+            }
+        } else {
+            SectionCard {
+                MutedNote("This key + bore combination doesn't produce a buildable tube length. Try a different bore.")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HoleTableHeader() {
+    Row(modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Text("Hole", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+        Text("Interval", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1.4f))
+        Text("From TSH", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text("Ø", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.8f))
+    }
+}
+
+@Composable
+private fun HoleRow(num: Int, interval: String, fromTsh: Double, diameter: Double) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text("H$num", color = Gold, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(0.6f))
+        Text(interval, color = Bone, fontSize = 12.sp, modifier = Modifier.weight(1.4f))
+        Text(fmtIn(fromTsh), color = Bone, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Text(fmtIn3(diameter), color = Bone, fontSize = 12.sp, modifier = Modifier.weight(0.8f))
+    }
+}
+
+private fun fmtIn(v: Double): String = jsFmtIn(v, 2)
+private fun fmtIn3(v: Double): String = jsFmtIn(v, 3)
+
+/**
+ * A value that is normally derived from the bore but can be overridden. Empty
+ * means "use the formula" — the same null-is-auto convention the engine and
+ * the saved configs use — so clearing the field restores the automatic value
+ * rather than leaving a zero behind.
+ */
+@Composable
+private fun OverrideField(label: String, value: Double?, autoValue: Double, onValue: (Double?) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(value?.let { jsFmt(it, 3) } ?: "") }
+    // Re-seed ONLY when the value changed from outside — loading a saved
+    // config. Keying the remember on `value` instead would re-seed on every
+    // keystroke, because typing updates the value, and "3" would jump to
+    // "3.000" under the cursor.
+    LaunchedEffect(value) {
+        val typed = if (text.isBlank()) null else text.toDoubleOrNull()?.takeIf { it > 0 }
+        if (typed != value) text = value?.let { jsFmt(it, 3) } ?: ""
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = text,
+            onValueChange = { t ->
+                text = t
+                onValue(if (t.isBlank()) null else t.toDoubleOrNull()?.takeIf { it > 0 })
+            },
+            placeholder = { Text("auto — ${jsFmt(autoValue, 3)}\"", color = Muted, fontSize = 12.sp) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Bone, unfocusedTextColor = Bone,
+                focusedBorderColor = Gold, unfocusedBorderColor = com.nafduduk.calculator.ui.theme.Border,
+            ),
+        )
+    }
+}
