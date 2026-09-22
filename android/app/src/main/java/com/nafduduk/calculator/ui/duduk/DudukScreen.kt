@@ -47,6 +47,7 @@ import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
 import com.nafduduk.calculator.ui.tuner.TunerPanel
+import com.nafduduk.calculator.util.jsFmt
 import com.nafduduk.calculator.util.jsFmtIn
 import kotlin.math.max
 import kotlin.math.min
@@ -59,7 +60,9 @@ import kotlin.math.min
 @Composable
 fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {}) {
     val context = LocalContext.current
-    val a4 = 440.0
+    // Concert pitch: every note frequency, and so every tube length and hole
+    // position, comes from it — and the build sheet prints it.
+    var a4 by rememberSaveable { mutableStateOf(440.0) }
     val notes = remember(a4) { getNotes(a4) }
     val standardNotes = remember(notes) { notes.filter { !it.advanced } }
 
@@ -98,6 +101,7 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 boreIn = c.boreIn
                 noteKey = c.noteKey
                 reedLenIn = c.reedLenIn
+                a4 = c.a4
             }
             onConfigLoaded()
         }
@@ -115,6 +119,18 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        SectionCard {
+            FieldLabel("Tuning Reference")
+            PillRow {
+                listOf(440.0, 432.0).forEach { hz ->
+                    Pill(text = "A4 = ${jsFmt(hz, 0)} Hz", selected = a4 == hz, onClick = { a4 = hz })
+                }
+            }
+            if (a4 != 440.0) {
+                MutedNote("${jsFmt(a4, 0)} Hz — every length and hole position below is recalculated.")
+            }
+        }
+
         SectionCard {
             FieldLabel("Style")
             PillRow {
@@ -222,7 +238,7 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     Button(
                         onClick = {
                             val config = DudukConfig(
-                                styleId = styleId, boreIn = boreIn, noteKey = noteKey, reedLenIn = reedLenIn,
+                                styleId = styleId, boreIn = boreIn, noteKey = noteKey, reedLenIn = reedLenIn, a4 = a4,
                                 summaryRootNote = design.rootNote.name, summaryStyle = style.label,
                             )
                             val entry = saveInstrumentToLibrary(context, saveName, "duduk", config.toJson())

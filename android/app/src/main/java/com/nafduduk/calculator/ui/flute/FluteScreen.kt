@@ -1,5 +1,6 @@
 package com.nafduduk.calculator.ui.flute
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -24,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nafduduk.calculator.engine.BORES
@@ -31,6 +34,8 @@ import com.nafduduk.calculator.engine.Curve
 import com.nafduduk.calculator.engine.DRONE_INTERVALS
 import com.nafduduk.calculator.engine.DroneChamber
 import com.nafduduk.calculator.engine.ErgoOverride
+import com.nafduduk.calculator.engine.FluteConst
+import com.nafduduk.calculator.engine.HOLE_SHAPES
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.auditFluteChambers
@@ -62,6 +67,7 @@ import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
 import com.nafduduk.calculator.ui.tuner.TunerPanel
 import com.nafduduk.calculator.ui.viewer3d.Viewer3DPanel
+import com.nafduduk.calculator.util.jsFmt
 import com.nafduduk.calculator.util.jsFmtIn
 
 /**
@@ -74,7 +80,11 @@ import com.nafduduk.calculator.util.jsFmtIn
 @Composable
 fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {}) {
     val context = LocalContext.current
-    val a4 = 440.0
+
+    // Concert pitch. Every note frequency, and therefore every tube length and
+    // hole position, is derived from it — so it belongs at the top, above the
+    // key picker, the way the web source puts it in the page header.
+    var a4 by rememberSaveable { mutableStateOf(440.0) }
     val notes = remember(a4) { getNotes(a4) }
     val standardNotes = remember(notes) { notes.filter { !it.advanced } }
 
@@ -83,6 +93,15 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var holeCount by rememberSaveable { mutableStateOf(6) }
     var handSizeName by rememberSaveable { mutableStateOf(HandSize.AVERAGE.name) }
     val handSize = remember(handSizeName) { HandSize.valueOf(handSizeName) }
+
+    // Finger-hole shape: changes the calculated diameters by the shape's
+    // acoustic factor (round is the 1.0 baseline), and the 3D preview cuts
+    // the matching cutter.
+    var holeShapeKey by rememberSaveable { mutableStateOf("round") }
+    // Nulls mean "use the bore-derived formula", matching the web source's
+    // own Number.isFinite() checks.
+    var sacLenOverride by rememberSaveable { mutableStateOf<Double?>(null) }
+    var mouthpieceMarginOverride by rememberSaveable { mutableStateOf<Double?>(null) }
 
     // "single" | "drone". Drone-chamber state isn't rememberSaveable (no Saver
     // written for the DroneChamber list yet) so it resets on a configuration
@@ -93,15 +112,19 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var ergoOverride by remember { mutableStateOf<List<ErgoOverride>?>(null) }
     // Mirrors FlutePage's own useEffect: any change to the fields that shift
     // theoretical hole positions invalidates an active ergonomic override.
-    LaunchedEffect(boreIn, noteKey, holeCount, handSizeName) { ergoOverride = null }
+    LaunchedEffect(boreIn, noteKey, holeCount, handSizeName, holeShapeKey, a4) { ergoOverride = null }
 
     val selectedFreq = remember(noteKey, notes) { notes.find { it.name == noteKey }?.freq ?: 440.0 }
     val boreRec = remember(selectedFreq) { recommendedBores(selectedFreq) }
-    val geometry = remember(boreIn, selectedFreq, holeCount, handSize, ergoOverride) {
-        buildChamberGeometry(bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize, ergoOverride = ergoOverride)
+    val geometry = remember(boreIn, selectedFreq, holeCount, handSize, ergoOverride, holeShapeKey, sacLenOverride, mouthpieceMarginOverride) {
+        buildChamberGeometry(
+            bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize,
+            holeShapeKey = holeShapeKey, ergoOverride = ergoOverride,
+            sacLenInOverride = sacLenOverride, mouthpieceMarginInOverride = mouthpieceMarginOverride,
+        )
     }
-    val rawDroneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry) {
-        if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, "round", geometry) else emptyList()
+    val rawDroneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry, holeShapeKey) {
+        if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, holeShapeKey, geometry) else emptyList()
     }
 
     // Geometry validation runs by itself on every upstream change, exactly as
@@ -165,6 +188,13 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 handSizeName = c.handSize
                 fluteStyle = c.fluteStyle
                 drones = c.drones
+                holeShapeKey = c.holeShapeKey
+                a4 = c.a4
+                sacLenOverride = c.sacLenIn
+                mouthpieceMarginOverride = c.mouthpieceMarginIn
+                // Applied last: changing the fields above resets an active
+                // ergonomic override, so restoring it first would lose it.
+                ergoOverride = c.ergoOverride
             }
             onConfigLoaded()
         }
@@ -183,6 +213,22 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        SectionCard {
+            FieldLabel("Tuning Reference")
+            PillRow {
+                listOf(440.0, 432.0).forEach { hz ->
+                    Pill(text = "A4 = ${jsFmt(hz, 0)} Hz", selected = a4 == hz, onClick = { a4 = hz })
+                }
+            }
+            if (a4 != 440.0) {
+                Text(
+                    "${jsFmt(a4, 0)} Hz — every tube length and hole position below is recalculated.",
+                    color = androidx.compose.ui.graphics.Color(0xFFD4A05A),
+                    fontSize = 11.sp, lineHeight = 16.sp,
+                )
+            }
+        }
+
         SectionCard {
             FieldLabel("Root Note (Key)")
             PillRow {
@@ -237,6 +283,55 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     )
                 }
             }
+        }
+
+        SectionCard {
+            FieldLabel("Finger Hole Shape")
+            MutedNote("Changes the calculated diameter — round is the baseline.")
+            PillRow {
+                HOLE_SHAPES.forEach { (key, shape) ->
+                    Pill(
+                        text = "${shape.icon} ${shape.label}",
+                        selected = key == holeShapeKey,
+                        onClick = { holeShapeKey = key },
+                    )
+                }
+            }
+            HOLE_SHAPES[holeShapeKey]?.let { shape ->
+                MutedNote(shape.desc)
+                if (holeShapeKey != "round") {
+                    Text(
+                        "How to cut this shape: ${shape.howTo}",
+                        color = Bone, fontSize = 11.5.sp, lineHeight = 18.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .background(Bg2, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        }
+
+        SectionCard {
+            FieldLabel("Nest & Blank Overrides")
+            MutedNote(
+                "Both default to the bore-derived formula. The SAC is a plenum — its length shapes response " +
+                    "and blank length, not pitch — so it is a maker's call; the mouthpiece margin is spare " +
+                    "stock beyond L + SAC for trimming the mouthpiece end.",
+            )
+            OverrideField(
+                label = "SAC length (in)",
+                value = sacLenOverride,
+                autoValue = FluteConst.autoSacLen(boreIn),
+                onValue = { sacLenOverride = it },
+            )
+            OverrideField(
+                label = "Mouthpiece margin (in)",
+                value = mouthpieceMarginOverride,
+                autoValue = FluteConst.MOUTHPIECE_MARGIN,
+                onValue = { mouthpieceMarginOverride = it },
+            )
         }
 
         SectionCard {
@@ -388,6 +483,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                         Viewer3DPanel(
                             geometry = effGeometry,
                             fileBaseName = "naf_flute_${holeCount}hole_${noteKey.replace("#", "sharp")}",
+                            holeShapeKey = holeShapeKey,
                         )
                     }
                 }
@@ -421,6 +517,8 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                                     noteKey = noteKey, boreIn = boreIn, holeCount = holeCount, handSize = handSizeName,
                                     fluteStyle = fluteStyle, drones = drones, summaryRootNote = rootNote.name,
                                     summaryMaterial = "straight", summaryIsDrone = fluteStyle == "drone",
+                                    holeShapeKey = holeShapeKey, ergoOverride = ergoOverride, a4 = a4,
+                                    sacLenIn = sacLenOverride, mouthpieceMarginIn = mouthpieceMarginOverride,
                                 )
                                 val entry = saveInstrumentToLibrary(context, saveName, "flute", config.toJson())
                                 savedMsg = if (entry != null) "Saved as \"${entry.name}\"" else "Couldn't save — device storage may be full."
@@ -577,3 +675,40 @@ private fun HoleRow(num: Int, interval: String, fromTsh: Double, diameter: Doubl
 
 private fun fmtIn(v: Double): String = jsFmtIn(v, 2)
 private fun fmtIn3(v: Double): String = jsFmtIn(v, 3)
+
+/**
+ * A value that is normally derived from the bore but can be overridden. Empty
+ * means "use the formula" — the same null-is-auto convention the engine and
+ * the saved configs use — so clearing the field restores the automatic value
+ * rather than leaving a zero behind.
+ */
+@Composable
+private fun OverrideField(label: String, value: Double?, autoValue: Double, onValue: (Double?) -> Unit) {
+    var text by rememberSaveable { mutableStateOf(value?.let { jsFmt(it, 3) } ?: "") }
+    // Re-seed ONLY when the value changed from outside — loading a saved
+    // config. Keying the remember on `value` instead would re-seed on every
+    // keystroke, because typing updates the value, and "3" would jump to
+    // "3.000" under the cursor.
+    LaunchedEffect(value) {
+        val typed = if (text.isBlank()) null else text.toDoubleOrNull()?.takeIf { it > 0 }
+        if (typed != value) text = value?.let { jsFmt(it, 3) } ?: ""
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = text,
+            onValueChange = { t ->
+                text = t
+                onValue(if (t.isBlank()) null else t.toDoubleOrNull()?.takeIf { it > 0 })
+            },
+            placeholder = { Text("auto — ${jsFmt(autoValue, 3)}\"", color = Muted, fontSize = 12.sp) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Bone, unfocusedTextColor = Bone,
+                focusedBorderColor = Gold, unfocusedBorderColor = com.nafduduk.calculator.ui.theme.Border,
+            ),
+        )
+    }
+}

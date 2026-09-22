@@ -23,6 +23,9 @@ data class FluteConfig(
     /** A saved ergonomic hole adjustment; null means "theoretical positions". */
     val ergoOverride: List<ErgoOverride>? = null,
     val a4: Double = 440.0,
+    /** Null means "use the bore-derived formula", the same convention the engine uses. */
+    val sacLenIn: Double? = null,
+    val mouthpieceMarginIn: Double? = null,
 )
 
 fun FluteConfig.toJson(): String = JSONObject().apply {
@@ -49,6 +52,8 @@ fun FluteConfig.toJson(): String = JSONObject().apply {
     )
     put("holeShapeKey", holeShapeKey)
     put("a4", a4)
+    if (sacLenIn != null) put("sacLenIn", sacLenIn)
+    if (mouthpieceMarginIn != null) put("mouthpieceMarginIn", mouthpieceMarginIn)
     if (ergoOverride != null) {
         put(
             "ergoOverride",
@@ -121,10 +126,16 @@ fun parseFluteConfig(json: String): FluteConfig? = try {
         holeShapeKey = o.optString("holeShapeKey", "round").ifBlank { "round" },
         ergoOverride = ergo,
         a4 = o.optDouble("a4", 440.0).let { if (it.isFinite() && it > 0) it else 440.0 },
+        sacLenIn = positiveOrNull(o, "sacLenIn"),
+        mouthpieceMarginIn = positiveOrNull(o, "mouthpieceMarginIn"),
     )
 } catch (e: Exception) {
     null
 }
+
+/** An optional override: absent, non-finite or non-positive all mean "use the formula". */
+private fun positiveOrNull(o: JSONObject, key: String): Double? =
+    if (!o.has(key)) null else o.optDouble(key, Double.NaN).takeIf { it.isFinite() && it > 0 }
 
 /** Everything needed to reconstruct the Duduk screen's state. */
 data class DudukConfig(
@@ -134,6 +145,8 @@ data class DudukConfig(
     val reedLenIn: Double,
     val summaryRootNote: String,
     val summaryStyle: String,
+    /** Added after the first release; older saves load at concert pitch. */
+    val a4: Double = 440.0,
 )
 
 fun DudukConfig.toJson(): String = JSONObject().apply {
@@ -141,6 +154,7 @@ fun DudukConfig.toJson(): String = JSONObject().apply {
     put("boreIn", boreIn)
     put("noteKey", noteKey)
     put("reedLenIn", reedLenIn)
+    put("a4", a4)
     put(
         "summary",
         JSONObject().apply {
@@ -159,6 +173,7 @@ fun parseDudukConfig(json: String): DudukConfig? = try {
         reedLenIn = o.getDouble("reedLenIn"),
         summaryRootNote = o.optJSONObject("summary")?.optString("rootNote") ?: "",
         summaryStyle = o.optJSONObject("summary")?.optString("style") ?: "",
+        a4 = o.optDouble("a4", 440.0).let { if (it.isFinite() && it > 0) it else 440.0 },
     )
 } catch (e: Exception) {
     null

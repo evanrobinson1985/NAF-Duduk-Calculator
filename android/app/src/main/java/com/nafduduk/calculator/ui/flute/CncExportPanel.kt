@@ -20,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -370,7 +371,14 @@ private fun ToggleRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit, titl
 @Composable
 private fun NumberField(label: String, value: Double, decimals: Int, enabled: Boolean, onValue: (Double) -> Unit) {
     val shown = jsFmt(value, decimals)
-    var text by remember(enabled, shown) { mutableStateOf(shown) }
+    var text by remember { mutableStateOf(shown) }
+    // Re-seed only when the value moved on its own — Easy Mode recomputing it,
+    // or the method changing. Keying the remember on `shown` would re-seed on
+    // every keystroke, because typing updates the value, and a half-typed
+    // "0.1" would jump to "0.1000" under the cursor.
+    LaunchedEffect(shown, enabled) {
+        if (text.toDoubleOrNull() != value) text = shown
+    }
     Column(modifier = Modifier.width(150.dp)) {
         Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         OutlinedTextField(

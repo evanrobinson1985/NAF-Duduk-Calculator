@@ -4,6 +4,7 @@ import com.nafduduk.calculator.engine.DroneChamber
 import com.nafduduk.calculator.engine.ErgoOverride
 import com.nafduduk.calculator.engine.HandSize
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -101,5 +102,49 @@ class InstrumentConfigTest {
         )
         assertEquals(cfg, parseDudukConfig(cfg.toJson()))
         for (bad in listOf("", "{oops", "[]", "{}")) assertNull("should reject: $bad", parseDudukConfig(bad))
+    }
+
+    @Test
+    fun `the SAC and mouthpiece overrides survive a round trip, and absent means auto`() {
+        val withOverrides = FluteConfig(
+            noteKey = "A4", boreIn = 0.625, holeCount = 6, handSize = "AVERAGE", fluteStyle = "single",
+            drones = emptyList(), summaryRootNote = "A4", summaryMaterial = "straight", summaryIsDrone = false,
+            sacLenIn = 3.75, mouthpieceMarginIn = 1.25,
+        )
+        val back = parseFluteConfig(withOverrides.toJson())!!
+        assertEquals(3.75, back.sacLenIn!!, 1e-9)
+        assertEquals(1.25, back.mouthpieceMarginIn!!, 1e-9)
+
+        // Null must not be written at all, so an old reader sees "no override"
+        // rather than a zero it would treat as a real value.
+        val auto = withOverrides.copy(sacLenIn = null, mouthpieceMarginIn = null)
+        val json = auto.toJson()
+        assertFalse(json.contains("sacLenIn"))
+        assertFalse(json.contains("mouthpieceMarginIn"))
+        assertNull(parseFluteConfig(json)!!.sacLenIn)
+        assertNull(parseFluteConfig(json)!!.mouthpieceMarginIn)
+    }
+
+    @Test
+    fun `a nonsense override in a saved entry is read as auto, not as a real value`() {
+        // These blobs live in SharedPreferences and can be hand-edited.
+        for (bad in listOf("0", "-2.5", "\"abc\"", "null")) {
+            val json = """{"noteKey":"A4","boreIn":0.625,"holeCount":6,"sacLenIn":$bad}"""
+            val c = parseFluteConfig(json)
+            assertNotNull("a bad override must not sink the whole entry: $bad", c)
+            assertNull("$bad must read as auto", c!!.sacLenIn)
+        }
+    }
+
+    @Test
+    fun `a duduk config carries its tuning reference`() {
+        val c = DudukConfig(
+            styleId = "traditional", boreIn = 0.65, noteKey = "A3", reedLenIn = 1.5,
+            summaryRootNote = "A3", summaryStyle = "Traditional", a4 = 432.0,
+        )
+        assertEquals(432.0, parseDudukConfig(c.toJson())!!.a4, 1e-9)
+        // An entry saved before the field existed still opens, at concert pitch.
+        val legacy = """{"styleId":"traditional","boreIn":0.65,"noteKey":"A3","reedLenIn":1.5}"""
+        assertEquals(440.0, parseDudukConfig(legacy)!!.a4, 1e-9)
     }
 }

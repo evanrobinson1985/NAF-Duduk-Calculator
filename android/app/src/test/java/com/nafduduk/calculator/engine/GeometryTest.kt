@@ -164,4 +164,45 @@ class GeometryTest {
             )
         }
     }
+
+    @Test
+    fun `the tuning reference moves every length and hole position`() {
+        // 432 Hz is a lower A, so every tube is longer. Nothing about the
+        // instrument itself changes — only what pitch it is cut to.
+        val at440 = getNotes(440.0)
+        val at432 = getNotes(432.0)
+        val f440 = at440.first { it.name == "A4" }.freq
+        val f432 = at432.first { it.name == "A4" }.freq
+        assertTrue("A4 at 432 must be flatter than at 440", f432 < f440)
+
+        val g440 = buildChamberGeometry(bore = 0.625, freq = f440, holeCount = 6)
+        val g432 = buildChamberGeometry(bore = 0.625, freq = f432, holeCount = 6)
+        assertTrue("a flatter root needs a longer tube", g432.lengthIn > g440.lengthIn)
+        for (h in g440.holes) {
+            val other = g432.holes.first { it.num == h.num }
+            assertTrue(
+                "H${h.num} must move with the tube",
+                abs(other.fromTshIn - h.fromTshIn) > GEOMETRY_TOLERANCE,
+            )
+        }
+    }
+
+    @Test
+    fun `a SAC override changes the blank length but never the pitch`() {
+        val auto = buildChamberGeometry(bore = 0.75, freq = 369.99, holeCount = 6)
+        val longer = buildChamberGeometry(bore = 0.75, freq = 369.99, holeCount = 6, sacLenInOverride = auto.sacLenIn + 2.0)
+
+        assertEquals("the SAC is a plenum — it must not move the tube length", auto.lengthIn, longer.lengthIn, 1e-9)
+        assertEquals("nor the holes", auto.holes.map { it.fromTshIn }, longer.holes.map { it.fromTshIn })
+        assertEquals("but the blank gets longer", auto.totalLenIn!! + 2.0, longer.totalLenIn!!, 1e-9)
+    }
+
+    @Test
+    fun `a mouthpiece margin override changes only the blank length`() {
+        val auto = buildChamberGeometry(bore = 0.75, freq = 369.99, holeCount = 6)
+        val trimmed = buildChamberGeometry(bore = 0.75, freq = 369.99, holeCount = 6, mouthpieceMarginInOverride = 0.0)
+        assertEquals(auto.lengthIn, trimmed.lengthIn, 1e-9)
+        assertEquals(auto.sacLenIn, trimmed.sacLenIn, 1e-9)
+        assertEquals(auto.lengthIn + auto.sacLenIn, trimmed.totalLenIn!!, 1e-9)
+    }
 }

@@ -49,15 +49,15 @@ import kotlinx.coroutines.withContext
  * the Filament-API caveat.
  */
 @Composable
-fun Viewer3DPanel(geometry: ChamberGeometry, fileBaseName: String) {
+fun Viewer3DPanel(geometry: ChamberGeometry, fileBaseName: String, holeShapeKey: String = "round") {
     val context = LocalContext.current
     var curve by remember { mutableStateOf(Curve.STRAIGHT) }
     var solid by remember { mutableStateOf<CsgSolid?>(null) }
     var building by remember { mutableStateOf(true) }
 
-    LaunchedEffect(geometry, curve) {
+    LaunchedEffect(geometry, curve, holeShapeKey) {
         building = true
-        solid = withContext(Dispatchers.Default) { buildChamberSolid(geometry, curve) }
+        solid = withContext(Dispatchers.Default) { buildChamberSolid(geometry, curve, holeShapeKey) }
         building = false
     }
 
