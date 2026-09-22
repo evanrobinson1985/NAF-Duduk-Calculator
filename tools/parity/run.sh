@@ -9,6 +9,11 @@
 #   tools/parity/run.sh            # compare; non-zero exit if anything drifts
 #   tools/parity/run.sh --update   # refresh the committed golden JS output
 #
+# Two files are skipped because they reach outside these packages into
+# Android or mesh/ and have no pure-function counterpart to compare:
+# GcodeExportHelper.kt (the share sheet) and MilledBlank.kt (which builds a
+# CsgSolid). Both are covered by the unit tests instead.
+#
 # Needs: node (+ npx, for esbuild) and a Kotlin compiler. The Kotlin compiler
 # is found in this order: $KOTLINC, kotlinc on PATH, kotlin-compiler-embeddable
 # from a Gradle distribution ($GRADLE_HOME, the wrapper's downloaded dist, or
@@ -65,7 +70,7 @@ while IFS= read -r f; do srcs+=("$f"); done < <(
   find "$repo/android/app/src/main/java/com/nafduduk/calculator/engine" \
        "$repo/android/app/src/main/java/com/nafduduk/calculator/gcode" \
        "$repo/android/app/src/main/java/com/nafduduk/calculator/util" \
-       -name '*.kt' ! -name 'GcodeExportHelper.kt' | sort
+       -name '*.kt' ! -name 'GcodeExportHelper.kt' ! -name 'MilledBlank.kt' | sort
 )
 rm -rf "$work/out"
 if [[ -n "$kotlinc_bin" ]]; then

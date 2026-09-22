@@ -20,7 +20,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,9 +45,13 @@ import com.nafduduk.calculator.gcode.GcodeSetupMode
 import com.nafduduk.calculator.gcode.OutlineMode
 import com.nafduduk.calculator.gcode.SplitFit
 import com.nafduduk.calculator.gcode.SplitStyle
+import com.nafduduk.calculator.gcode.ToolTip
+import com.nafduduk.calculator.gcode.millBlanksFromProgram
 import com.nafduduk.calculator.gcode.buildGcodePrograms
 import com.nafduduk.calculator.gcode.resolve
 import com.nafduduk.calculator.gcode.toolSafetyWarning
+import com.nafduduk.calculator.mesh.exportObj
+import com.nafduduk.calculator.mesh.exportStl
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -57,6 +63,10 @@ import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
 import com.nafduduk.calculator.ui.theme.OnGold
 import com.nafduduk.calculator.util.jsFmt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val EasyBg = Color(0xFF14251A)
 private val EasyBorder = Color(0xFF3A5A3A)
@@ -95,6 +105,13 @@ fun CncExportPanel(
     var warning by remember { mutableStateOf<String?>(null) }
     /** The program currently being simulated, as (program key, generated G-code). */
     var preview by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var milling by remember { mutableStateOf(false) }
+    var millNote by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    var millJob by remember { mutableStateOf<Job?>(null) }
+    // A simulation left running after the panel goes away would keep a core
+    // busy for nothing.
+    DisposableEffect(Unit) { onDispose { millJob?.cancel() } }
 
     // What Easy Mode would pick, used both to run it and to seed the manual
     // fields the moment it is switched off.
@@ -314,6 +331,58 @@ fun CncExportPanel(
         "Uses explicit move sequences rather than canned drilling cycles (G81/G83), so the output runs " +
             "correctly on every dialect above — including GRBL, which doesn't support canned cycles at all.",
     )
+
+    // ── The milled blank ─────────────────────────────────────────────
+    FieldLabel("Milled Blank (CAD)")
+    MutedNote(
+        "Simulates the program cutting the stock and exports what it leaves behind — not what the design " +
+            "says the flute should be, but what this program will actually produce, tool shape and all. " +
+            "Turn the outline pass to Full cutout first and the clamping margin and pin rails are trimmed " +
+            "away too, leaving just the part.",
+    )
+    Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("STL" to "stl", "OBJ" to "obj").forEach { (label, ext) ->
+            Button(
+                onClick = {
+                    val w = toolSafetyWarning(resolved.toolDiameter, chambers)
+                    warning = w
+                    if (w != null) return@Button
+                    milling = true
+                    millJob = scope.launch {
+                        val combined = programs.first { it.key == "all" }
+                        val result = withContext(Dispatchers.Default) {
+                            millBlanksFromProgram(combined.build(), resolved.toolDiameter, ToolTip.FLAT)
+                        }
+                        milling = false
+                        if (result.isEmpty) {
+                            warning = "This program carries no stock hints, so there is nothing to simulate cutting."
+                            return@launch
+                        }
+                        millNote = if (result.trimmed) {
+                            "Trimmed to the finished outline."
+                        } else {
+                            "No outline-cutout pass in this program, so the export is the full rectangular " +
+                                "stock — switch the outline pass to Full cutout to trim it to the part."
+                        }
+                        result.blanks.forEach { (blankLabel, solid) ->
+                            val safe = blankLabel.replace(Regex("[^A-Za-z0-9_-]"), "_")
+                            val text = withContext(Dispatchers.Default) {
+                                if (ext == "stl") exportStl(solid, safe) else exportObj(solid, safe)
+                            }
+                            onExport("milled_$safe.$ext", text)
+                        }
+                    }
+                },
+                enabled = !milling,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Bg2, contentColor = Bone,
+                    disabledContainerColor = Bg2, disabledContentColor = Muted,
+                ),
+                modifier = Modifier.weight(1f),
+            ) { Text(if (milling) "Simulating…" else "⬇ $label", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+        }
+    }
+    millNote?.let { MutedNote(it) }
 }
 
 @Composable
