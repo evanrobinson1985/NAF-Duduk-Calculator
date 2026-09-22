@@ -102,3 +102,22 @@ fun ResultRow(label: String, value: String) {
         Text(text = value, color = Bone, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
+
+/**
+ * A checkbox-style toggle for a single preference, sized for a caption rather
+ * than a section heading — used where the option explains itself in a line.
+ */
+@Composable
+fun ToggleNote(checked: Boolean, onCheckedChange: (Boolean) -> Unit, label: String) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clickable { onCheckedChange(!checked) },
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(if (checked) "☑" else "☐", color = if (checked) Gold else Muted, fontSize = 14.sp)
+        Text(label, color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+    }
+}

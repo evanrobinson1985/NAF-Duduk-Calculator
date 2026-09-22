@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +26,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nafduduk.calculator.audio.NoteSamplePlayer
+import com.nafduduk.calculator.audio.hasNoteSample
 import com.nafduduk.calculator.engine.DUDUK_STYLES
 import com.nafduduk.calculator.engine.buildDudukDesignForKey
 import com.nafduduk.calculator.engine.getNotes
@@ -45,6 +48,7 @@ import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
 import com.nafduduk.calculator.ui.common.ResultRow
 import com.nafduduk.calculator.ui.common.SectionCard
+import com.nafduduk.calculator.ui.common.ToggleNote
 import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
@@ -114,6 +118,11 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var saveName by remember { mutableStateOf("") }
     var savedMsg by remember { mutableStateOf("") }
     var showTuner by remember { mutableStateOf(false) }
+    var playSamples by rememberSaveable { mutableStateOf(true) }
+
+    // A sample outliving the screen that started it would keep sounding over
+    // whatever the person moved on to, and hold a codec while it did.
+    DisposableEffect(Unit) { onDispose { NoteSamplePlayer.stop() } }
 
     Column(
         modifier = Modifier
@@ -148,9 +157,23 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             FieldLabel("Root Note (Key)")
             PillRow {
                 standardNotes.forEach { n ->
-                    Pill(text = n.name, selected = n.name == noteKey, onClick = { noteKey = n.name })
+                    Pill(
+                        // A dot marks the keys with a recording behind them.
+                        text = if (hasNoteSample(n.name)) "${n.name} ♪" else n.name,
+                        selected = n.name == noteKey,
+                        onClick = {
+                            noteKey = n.name
+                            if (playSamples) NoteSamplePlayer.play(context, n.name)
+                        },
+                    )
                 }
             }
+            ToggleNote(
+                checked = playSamples,
+                onCheckedChange = { playSamples = it; if (!it) NoteSamplePlayer.stop() },
+                label = "Play a recorded flute note when a key is picked (♪ = recorded). " +
+                    "These are flute samples — a duduk's own voice is reedier, but the pitch is the pitch.",
+            )
             Button(
                 onClick = { showTuner = !showTuner },
                 colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
