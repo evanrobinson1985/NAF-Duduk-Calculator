@@ -2,12 +2,28 @@ package com.nafduduk.calculator.gcode
 
 import com.nafduduk.calculator.engine.FingerHole
 import com.nafduduk.calculator.engine.FluteConst
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
-import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 
-internal fun fmt(n: Double, dec: Int = 2): String = String.format(Locale.US, "%.${dec}f", n)
+/**
+ * The web source's `fmt(n, dec) = Number(n).toFixed(dec)`.
+ *
+ * Deliberately NOT String.format("%.Nf"): that rounds the shortest decimal
+ * representation HALF_UP, while JS toFixed() rounds the double's exact
+ * binary value. They disagree whenever the shortest repr ends in a 5 at the
+ * cut position — e.g. breathHoleLength(0.75) = 0.6375 is stored as
+ * 0.63749999999999995559…, so toFixed(3) is "0.637" but %.3f gives "0.638".
+ * That shifted G-code coordinates by one last digit against the web app's
+ * output. BigDecimal(double) takes the exact binary value, so HALF_UP on it
+ * reproduces toFixed() exactly, including true midpoints (0.125 -> "0.13")
+ * and negatives (-0.5 -> "-1").
+ */
+internal fun fmt(n: Double, dec: Int = 2): String =
+    if (n.isNaN() || n.isInfinite()) n.toString()
+    else BigDecimal(n).setScale(dec, RoundingMode.HALF_UP).toPlainString()
 
 /**
  * Dialect note (ported verbatim from the web source): canned drilling

@@ -69,12 +69,14 @@ fun TunerPanel(targetNoteDefault: String, notes: List<Note>, onClose: () -> Unit
     var hasPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
+    // Declared before permissionLauncher: the launcher's result callback flips
+    // it on, and a Kotlin local can't be captured before its declaration.
+    var isListening by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPermission = granted
         if (granted) isListening = true
     }
 
-    var isListening by remember { mutableStateOf(false) }
     var detectedNote by remember { mutableStateOf("--") }
     var detectedFreq by remember { mutableStateOf(0) }
     var detectedCents by remember { mutableStateOf(0) }
