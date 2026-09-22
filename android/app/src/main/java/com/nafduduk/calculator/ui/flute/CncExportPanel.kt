@@ -49,6 +49,7 @@ import com.nafduduk.calculator.gcode.toolSafetyWarning
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
+import com.nafduduk.calculator.ui.gcodeviewer.GcodeViewerPanel
 import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Border
@@ -92,11 +93,16 @@ fun CncExportPanel(
 ) {
     var s by remember { mutableStateOf(CncSettings()) }
     var warning by remember { mutableStateOf<String?>(null) }
+    /** The program currently being simulated, as (program key, generated G-code). */
+    var preview by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // What Easy Mode would pick, used both to run it and to seed the manual
     // fields the moment it is switched off.
     val resolved = remember(s, chambers) { s.resolve(chambers) }
     val programs = remember(s, chambers, curve, droneBody) { buildGcodePrograms(s, chambers, curve, droneBody) }
+    // A settings change makes any open preview stale; it is showing the old
+    // program, which is worse than showing nothing.
+    LaunchedEffect(programs) { preview = null }
 
     fun export(fileName: String, build: () -> String) {
         val w = toolSafetyWarning(resolved.toolDiameter, chambers)
@@ -278,12 +284,29 @@ fun CncExportPanel(
                 Text(p.blurb, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
             }
             Button(
+                onClick = {
+                    // Simulating costs nothing and catches a wrong work zero
+                    // or an inverted axis before the spindle turns.
+                    val w = toolSafetyWarning(resolved.toolDiameter, chambers)
+                    warning = w
+                    if (w == null) preview = if (preview?.first == p.key) null else p.key to p.build()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
+            ) { Text(if (preview?.first == p.key) "Hide" else "Preview", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+            Button(
                 onClick = { export(p.fileName, p.build) },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (p.key == "all") Bg2 else Gold,
                     contentColor = if (p.key == "all") Bone else OnGold,
                 ),
             ) { Text("⬇", fontWeight = FontWeight.Bold) }
+        }
+        if (preview?.first == p.key) {
+            GcodeViewerPanel(
+                program = preview!!.second,
+                fileName = p.fileName,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 

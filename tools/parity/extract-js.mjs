@@ -51,6 +51,8 @@ const EXPORTS = [
   'drillRoundHole', 'drillOneHole', 'generateSplitBlockGCode', 'generateTubeDrillingGCode',
   // tuner
   'autoCorrelatePitch',
+  // G-code reader (drives the toolpath viewer and the milled-blank export)
+  'parseGCode', 'stripComments', 'tokenizeWords', 'arcPoints',
 ];
 
 let src = fs.readFileSync(jsxPath, 'utf8');

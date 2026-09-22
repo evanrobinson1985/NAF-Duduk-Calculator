@@ -238,6 +238,85 @@ fun main() {
         ))
     }
 
+    // ── G-code reader ───────────────────────────────────────────────
+    // The viewer has to read the dialects these generators emit, so the
+    // reader is fed programs they actually produce, plus hand-written lines
+    // covering what a person might load instead.
+    put(
+        "stripComments",
+        listOf(
+            "( OPERATION 1A (thick blank) )",
+            "G1 X1 Y2 (feed move)",
+            "G0 Z0.5 ; retract",
+            "(bare comment)",
+            "G1 X1 (mid) Y2",
+            "",
+            "   ",
+        ).map { val r = stripComments(it); "${r.code}|${r.comment}" },
+    )
+
+    put(
+        "tokenizeWords",
+        listOf("G1 X-1.5 Y2. Z.25 F40", "g01x1y2", "M3 S16000", "X1Y2Z3")
+            .map { line -> tokenizeWords(line).joinToString(",") { "${it.letter}${n6(pf(it.value, 6))}" } },
+    )
+
+    fun ptList(pts: List<GcodePoint>) = pts.map { "${n6(pf(it.x, 6))}/${n6(pf(it.y, 6))}/${n6(pf(it.z, 6))}" }
+    put(
+        "arcPoints",
+        ptList(arcPoints(GcodePoint(1.0, 0.0, 0.0), GcodePoint(0.0, 1.0, 0.0), GcodePoint(0.0, 0.0, 0.0), true, "XY", 8)),
+    )
+    put(
+        "arcPoints.helix",
+        ptList(arcPoints(GcodePoint(1.0, 0.0, 0.0), GcodePoint(1.0, 0.0, 1.0), GcodePoint(0.0, 0.0, 0.0), false, "XY", 8)),
+    )
+
+    fun segTypeName(t: SegmentType) = when (t) {
+        SegmentType.RAPID -> "rapid"
+        SegmentType.FEED -> "feed"
+        SegmentType.COMMENT -> "comment"
+        SegmentType.PAUSE -> "pause"
+        SegmentType.DWELL -> "dwell"
+        SegmentType.ANNOTATION -> "annotation"
+    }
+    fun ptOrNull(p: GcodePoint?) = p?.let { "${n6(pf(it.x, 6))}/${n6(pf(it.y, 6))}/${n6(pf(it.z, 6))}" }
+    fun parseDump(text: String): Map<String, Any?> {
+        val p = parseGcode(text)
+        return linkedMapOf(
+            "units" to p.units,
+            "lineCount" to p.lineCount,
+            "warnings" to p.warnings.size,
+            "segTypes" to p.segments.joinToString(",") { segTypeName(it.type) },
+            "motions" to p.segments.filter { it.from != null || it.to != null }.map { s ->
+                "${segTypeName(s.type)}:${ptOrNull(s.from)}>${ptOrNull(s.to)}" +
+                    if (s.isArc) ":arc${s.points.size}" else ""
+            },
+            "bounds" to "${ptOrNull(p.bounds.min)}..${ptOrNull(p.bounds.max)}",
+            "cutBounds" to "${ptOrNull(p.cutBounds.min)}..${ptOrNull(p.cutBounds.max)}",
+            "stockBlocks" to p.stockBlocks.map {
+                "${it.label}:${n6(pf(it.x, 6))}/${n6(pf(it.y, 6))}/${n6(pf(it.z, 6))}:" +
+                    "${n6(pf(it.lx, 6))}/${n6(pf(it.ly, 6))}/${n6(pf(it.lz, 6))}"
+            },
+            "stockFlips" to p.stockFlips.map { "${it.label}:${it.axis}:${if (it.preflipped) 1 else 0}:${it.lineIndex}" },
+        )
+    }
+
+    val handWritten = linkedMapOf(
+        "incremental" to "G21\nG90\nG1 X10 Y0\nG91\nG1 X5 Y5\nG1 Z-1\nG90\nG1 X0 Y0",
+        "arcR" to "G20\nG17\nG1 X0 Y0\nG2 X2 Y0 R1\nG3 X0 Y0 R-1",
+        "arcIJ" to "G20\nG1 X1 Y0\nG2 X0 Y1 I-1 J0",
+        "arcNoCenter" to "G20\nG1 X0 Y0\nG2 X2 Y0\nG1 X3 Y0",
+        "bareAxis" to "G20\nG1 X1 Y1 F30\nX2\nY3\nZ-0.5",
+        "noUnits" to "G1 X1 Y1",
+        "planes" to "G21\nG18\nG1 X0 Y0 Z0\nG2 X2 Z0 I1 K0\nG19\nG3 Y2 Z0 J1 K0",
+        "offsetsAndStops" to "G20\nG92 X0 Y0 Z0\nG1 X1\nM0\nG4 P2\nG1 X2\nM5\nM30",
+        "stockHints" to "G20\n( STOCK-BLOCK label=bottom-half x=-0.5 y=-1.1 z=-1.4 lx=26 ly=2.2 lz=1.4 )\n" +
+            "( STOCK-FLIP label=top-half axis=x preflipped=1 )\n( STOCK-BLOCK label=bad x=1 lx=0 )\nG1 X1",
+        "empty" to "",
+        "commentsOnly" to "( just a banner )\n( another (nested) one )",
+    )
+    for ((name, text) in handWritten) put("parseGCode.$name", parseDump(text))
+
     // ── duduk ───────────────────────────────────────────────────────
     put("dudukTubeLen", listOf(Triple(220.0, 0.3, 1.5), Triple(293.66, 0.35, 2.0), Triple(174.61, 0.45, 2.5)).map { (f, r, e) -> dudukTubeLen(f, r, e) })
     put("dudukHoleDiam", listOf(0.6 to false, 0.6 to true, 0.9 to false, 0.35 to true).map { (b, t) -> dudukHoleDiam(b, t) })
@@ -366,6 +445,8 @@ fun main() {
         put("GCODE.split.$style.cutout", split(single, style, outlinePass = "cutout"))
         put("GCODE.split.$style.scribe", split(single, style, outlinePass = "scribe"))
         put("GCODE.split.$style.flat", split(single, style, channelStyle = "flat"))
+        // Read back what was just generated.
+        put("parseGCode.generated.$style", parseDump(split(single, style, outlinePass = "cutout")))
         put("GCODE.split.$style.curve", split(single, style, curve = Curve.SLIGHT))
         put("GCODE.split.$style.drone.solid", split(drone, style, droneBody = "solid"))
         put("GCODE.split.$style.nopins", split(single, style, alignPins = false))

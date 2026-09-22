@@ -126,6 +126,69 @@ put('fingerReach.tight', reachDump(E.buildChamberGeometry({ bore: 0.375, freq: 8
     });
   });
 
+// ── G-code reader ───────────────────────────────────────────────────
+// The viewer has to read the dialects these generators emit, so the reader
+// is fed programs they actually produce, plus hand-written lines covering
+// what a person might load instead: incremental mode, arcs given by R, a
+// bare axis move with no G word, semicolon comments, banner comments with
+// parentheses inside them.
+put('stripComments', [
+  '( OPERATION 1A (thick blank) )',
+  'G1 X1 Y2 (feed move)',
+  'G0 Z0.5 ; retract',
+  '(bare comment)',
+  'G1 X1 (mid) Y2',
+  '',
+  '   ',
+].map(l => { const r = E.stripComments(l); return `${r.code}|${r.comment}`; }));
+
+put('tokenizeWords', [
+  'G1 X-1.5 Y2. Z.25 F40',
+  'g01x1y2',
+  'M3 S16000',
+  'X1Y2Z3',
+].map(l => E.tokenizeWords(l).map(w => `${w.letter}${r6(w.value)}`).join(',')));
+
+put('arcPoints', (() => {
+  const pts = E.arcPoints({x:1,y:0,z:0}, {x:0,y:1,z:0}, {x:0,y:0,z:0}, true, 'XY', 8);
+  return pts.map(p => `${r6(p.x)}/${r6(p.y)}/${r6(p.z)}`);
+})());
+put('arcPoints.helix', (() => {
+  const pts = E.arcPoints({x:1,y:0,z:0}, {x:1,y:0,z:1}, {x:0,y:0,z:0}, false, 'XY', 8);
+  return pts.map(p => `${r6(p.x)}/${r6(p.y)}/${r6(p.z)}`);
+})());
+
+const parseDump = (text) => {
+  const p = E.parseGCode(text);
+  const pt = (q) => q ? `${r6(q.x)}/${r6(q.y)}/${r6(q.z)}` : null;
+  return {
+    units: p.units,
+    lineCount: p.lineCount,
+    warnings: p.warnings.length,
+    segTypes: p.segments.map(s => s.type).join(','),
+    motions: p.segments.filter(s => s.from || s.to).map(s => `${s.type}:${pt(s.from)}>${pt(s.to)}${s.isArc ? ':arc' + s.points.length : ''}`),
+    bounds: `${pt(p.bounds.min)}..${pt(p.bounds.max)}`,
+    cutBounds: `${pt(p.cutBounds.min)}..${pt(p.cutBounds.max)}`,
+    stockBlocks: p.stockBlocks.map(b => `${b.label}:${r6(b.x)}/${r6(b.y)}/${r6(b.z)}:${r6(b.lx)}/${r6(b.ly)}/${r6(b.lz)}`),
+    stockFlips: p.stockFlips.map(f => `${f.label}:${f.axis}:${f.preflipped ? 1 : 0}:${f.lineIndex}`),
+  };
+};
+
+const handWritten = {
+  'incremental': 'G21\nG90\nG1 X10 Y0\nG91\nG1 X5 Y5\nG1 Z-1\nG90\nG1 X0 Y0',
+  'arcR': 'G20\nG17\nG1 X0 Y0\nG2 X2 Y0 R1\nG3 X0 Y0 R-1',
+  'arcIJ': 'G20\nG1 X1 Y0\nG2 X0 Y1 I-1 J0',
+  'arcNoCenter': 'G20\nG1 X0 Y0\nG2 X2 Y0\nG1 X3 Y0',
+  'bareAxis': 'G20\nG1 X1 Y1 F30\nX2\nY3\nZ-0.5',
+  'noUnits': 'G1 X1 Y1',
+  'planes': 'G21\nG18\nG1 X0 Y0 Z0\nG2 X2 Z0 I1 K0\nG19\nG3 Y2 Z0 J1 K0',
+  'offsetsAndStops': 'G20\nG92 X0 Y0 Z0\nG1 X1\nM0\nG4 P2\nG1 X2\nM5\nM30',
+  'stockHints': 'G20\n( STOCK-BLOCK label=bottom-half x=-0.5 y=-1.1 z=-1.4 lx=26 ly=2.2 lz=1.4 )\n( STOCK-FLIP label=top-half axis=x preflipped=1 )\n( STOCK-BLOCK label=bad x=1 lx=0 )\nG1 X1',
+  'empty': '',
+  'commentsOnly': '( just a banner )\n( another (nested) one )',
+};
+Object.entries(handWritten).forEach(([name, text]) => put(`parseGCode.${name}`, parseDump(text)));
+
 // ── duduk ───────────────────────────────────────────────────────────
 put('dudukTubeLen', [[220, 0.3, 1.5], [293.66, 0.35, 2.0], [174.61, 0.45, 2.5]].map(([f, r, e]) => r6(E.dudukTubeLen(f, r, e))));
 put('dudukHoleDiam', [[0.6, false], [0.6, true], [0.9, false], [0.35, true]].map(([b, t]) => r6(E.dudukHoleDiam(b, t))));
@@ -206,6 +269,10 @@ for (const style of ['nest-insert', 'symmetric']) {
   put(`GCODE.split.${style}.flat`, E.generateSplitBlockGCode({ ...splitBase, chambers: single, splitStyle: style, only: 'all', channelStyle: 'flat' }));
   put(`GCODE.split.${style}.curve`, E.generateSplitBlockGCode({ ...splitBase, chambers: single, splitStyle: style, only: 'all', curve: 'slight' }));
   put(`GCODE.split.${style}.drone.solid`, E.generateSplitBlockGCode({ ...splitBase, chambers: drone, splitStyle: style, only: 'all', droneBody: 'solid' }));
+  // Read back what was just generated: the viewer's whole job is to show a
+  // real program, and a cutout pass is the one that carries the outline the
+  // milled-blank export trims to.
+  put(`parseGCode.generated.${style}`, parseDump(E.generateSplitBlockGCode({ ...splitBase, chambers: single, splitStyle: style, only: 'all', outlinePass: 'cutout' })));
   put(`GCODE.split.${style}.nopins`, E.generateSplitBlockGCode({ ...splitBase, chambers: single, splitStyle: style, only: 'all', alignPins: false }));
   put(`GCODE.split.${style}.mm`, E.generateSplitBlockGCode({ ...splitBase, chambers: single, splitStyle: style, only: 'all', units: 'mm' }));
 }
