@@ -1,0 +1,13 @@
+{
+  "name": "naf-duduk-parity",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Differential test: the original JSX's pure functions vs the Kotlin port.",
+  "type": "module",
+  "scripts": {
+    "parity": "./run.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

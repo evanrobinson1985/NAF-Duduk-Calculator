@@ -10,8 +10,15 @@ import java.nio.ByteOrder
  * POSITION/NORMAL pair per triangle corner, three corners per triangle,
  * which is valid per the glTF 2.0 spec (the "indices" accessor is
  * optional) and sidesteps any vertex-welding logic.
+ *
+ * An explicit material matters: glTF's default for a primitive with no
+ * material is metallicFactor 1.0, and a fully metallic surface shows almost
+ * nothing without an environment map to reflect — the preview came out black.
+ * A dielectric (metallic 0) bone-coloured material reads correctly under the
+ * directional + indirect light Viewer3DView installs.
  */
-fun exportGltf(solid: CsgSolid): String {
+fun exportGltf(rawSolid: CsgSolid): String {
+    val solid = exportableSolid(rawSolid)
     val positions = mutableListOf<Float>()
     val normals = mutableListOf<Float>()
 
@@ -54,9 +61,21 @@ fun exportGltf(solid: CsgSolid): String {
               "primitives": [
                 {
                   "attributes": { "POSITION": 0, "NORMAL": 1 },
+                  "material": 0,
                   "mode": 4
                 }
               ]
+            }
+          ],
+          "materials": [
+            {
+              "name": "antler",
+              "pbrMetallicRoughness": {
+                "baseColorFactor": [0.898, 0.835, 0.722, 1.0],
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.62
+              },
+              "doubleSided": true
             }
           ],
           "accessors": [

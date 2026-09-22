@@ -1,11 +1,19 @@
 package com.nafduduk.calculator.mesh
 
-import java.util.Locale
+import com.nafduduk.calculator.util.jsFmt
 
-private fun fmt(v: Double): String = String.format(Locale.US, "%.6f", v)
+private fun fmt(v: Double): String = jsFmt(v, 6)
+
+/**
+ * Every exporter runs the solid through exportableSolid() first: raw CSG
+ * output has T-junctions (see MeshRepair.kt), which makes an STL non-manifold
+ * and trips slicers. Repair is idempotent, so calling several exporters on the
+ * same solid just repeats the (cheap) welded pass.
+ */
 
 /** ASCII STL — one facet per triangle, in the mesh's own coordinate units (inches, matching the rest of the app). */
-fun exportStl(solid: CsgSolid, name: String = "naf_flute"): String {
+fun exportStl(rawSolid: CsgSolid, name: String = "naf_flute"): String {
+    val solid = exportableSolid(rawSolid)
     val sb = StringBuilder()
     sb.append("solid $name\n")
     for (poly in solid.polygons) {
@@ -31,7 +39,8 @@ fun exportStl(solid: CsgSolid, name: String = "naf_flute"): String {
  * unlike STL/PLY, no triangulation is needed here; readers triangulate
  * n-gon faces themselves).
  */
-fun exportObj(solid: CsgSolid, name: String = "naf_flute"): String {
+fun exportObj(rawSolid: CsgSolid, name: String = "naf_flute"): String {
+    val solid = exportableSolid(rawSolid)
     val sb = StringBuilder()
     sb.append("# $name — exported by NAF Flute & Duduk Calculator (Android)\n")
     sb.append("o $name\n")
@@ -57,7 +66,8 @@ fun exportObj(solid: CsgSolid, name: String = "naf_flute"): String {
 }
 
 /** Stanford PLY (ASCII) — triangulated, one vertex per triangle-corner (simplest correct encoding, larger file). */
-fun exportPly(solid: CsgSolid): String {
+fun exportPly(rawSolid: CsgSolid): String {
+    val solid = exportableSolid(rawSolid)
     val allTris = solid.polygons.flatMap { it.triangulate() }
     val header = StringBuilder()
     header.append("ply\n")

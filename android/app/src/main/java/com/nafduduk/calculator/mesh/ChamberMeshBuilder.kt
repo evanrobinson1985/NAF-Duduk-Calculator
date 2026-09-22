@@ -7,7 +7,6 @@ import com.nafduduk.calculator.engine.curveBowAmplitudeIn
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 import kotlin.math.tan
 
 /**
@@ -31,21 +30,23 @@ import kotlin.math.tan
  * STL/3D printing anyway. The bird block (birdKey === "default") isn't
  * built at all: this app has no bird-style picker.
  */
-fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String = "round", radialSegments: Int = 18): CsgSolid {
+fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String = "round", radialSegments: Int = 0): CsgSolid {
     val bowAmp = curveBowAmplitudeIn(curve)
     val totalLen = geom.sacLenIn + geom.lengthIn
-    // BSP-tree CSG cost grows steeply with polygon count and this can't be
-    // profiled on real hardware in this sandbox, so segment counts here are
-    // deliberately conservative (a round tube doesn't need many segments to
-    // read as round) rather than tuned for maximum visual smoothness.
-    val segments = 20
 
-    fun centerAt(t: Double): Vec3 {
-        val x = t * totalLen
-        val y = if (bowAmp == 0.0) 0.0 else bowAmp * sin(t * PI)
-        return Vec3(x, y, 0.0)
-    }
-    val pathPoints = (0..segments).map { centerAt(it.toDouble() / segments) }
+    // The body is ALWAYS built on a straight centerline and bent at the end
+    // (mesh/SineBend.kt). Sweeping the CSG along the bow instead gives every
+    // segment its own plane, which both blows up BSP cost and leaves holes and
+    // pinched edges the repair pass cannot honestly close; bending a finished
+    // straight body is an isometry per cross-section, so it preserves the
+    // topology and every dimension. A straight tube's side walls are coplanar
+    // station to station, so the BSP collapses them and extra segments are
+    // nearly free — which is why the counts below are flat rather than traded
+    // off against the bow.
+    val segments = 20
+    val radial = if (radialSegments > 0) radialSegments else 18
+
+    val pathPoints = (0..segments).map { Vec3(it.toDouble() / segments * totalLen, 0.0, 0.0) }
 
     val bore = geom.bore
     val r = bore / 2
@@ -53,8 +54,8 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
     val outerR = r + wallT
     val tTsh = (geom.sacLenIn / totalLen).coerceIn(0.0, 1.0)
 
-    var body = buildCappedTube(pathPoints, outerR, radialSegments)
-        .subtract(buildCappedTube(pathPoints, r, radialSegments))
+    var body = buildCappedTube(pathPoints, outerR, radial)
+        .subtract(buildCappedTube(pathPoints, r, radial))
 
     val shW = geom.soundHoleWidthIn
     val shL = geom.soundHoleLengthIn
@@ -147,7 +148,7 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
 
         val blockW = 2 * (r + wallT) + 0.1
         val blockRaw = buildExtrudedProfile(blockPoints, blockW, basis)
-        val clipTube = buildCappedTube(pathPoints, outerR, radialSegments)
+        val clipTube = buildCappedTube(pathPoints, outerR, radial)
         nestBlockSolid = blockRaw.intersect(clipTube)
     } else {
         // Large-bore fallback (verified unreliable above 2in bore for the
@@ -218,7 +219,13 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
             val slope = (0.5 * holeR) / chamferDepth
             val topR = holeR * 1.5 + slope * above
             val chamferCenter = center + up * (outerR - chamferDepth + coneH / 2)
-            val chamferCutter = buildFrustumAlong(chamferCenter, up, coneH, topRadius = topR, bottomRadius = holeR, radialSegments = 16)
+            // A thou under the hole radius, not exactly on it: the bore cutter
+            // above already took everything inside holeR, so the chamfer's
+            // narrow end removes nothing either way, but a rim landing exactly
+            // on the bore wall makes the two cut surfaces coincident, and
+            // coincident surfaces are where a BSP CSG leaves pinched edges.
+            val chamferBottomR = max(holeR * 0.5, holeR - 0.001)
+            val chamferCutter = buildFrustumAlong(chamferCenter, up, coneH, topRadius = topR, bottomRadius = chamferBottomR, radialSegments = 16)
             body = body.subtract(chamferCutter)
         }
     }
@@ -257,7 +264,7 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
 
         val mouthCenter = pointAt(pathPoints, 0.0)
         val plugCenter = mouthCenter + tangent0 * (plugRun / 2)
-        val plugSolid = buildCylinderAlong(plugCenter, tangent0, plugRun, outerR, radialSegments)
+        val plugSolid = buildCylinderAlong(plugCenter, tangent0, plugRun, outerR, radial)
 
         val a = mouthCenter + tangent0 * (-0.1)
         val b = mouthCenter + tangent0 * (plugRun + 0.04)
@@ -270,7 +277,7 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
         body = body.union(plugWithHole)
     }
 
-    return body
+    return if (bowAmp == 0.0) body else bendAlongSineBow(body, totalLen, bowAmp)
 }
 
 /** A capped frustum (different top/bottom radii) standing along `axis`, `center` at its midpoint. */

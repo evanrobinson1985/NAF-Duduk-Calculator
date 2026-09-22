@@ -7,6 +7,15 @@ package com.nafduduk.calculator.mesh
  * mirrors `new THREE.Matrix4().makeBasis(forward, up, right)` followed by a
  * translate: local X -> forward, local Y -> up, local Z -> right.
  */
+/**
+ * An orthonormal frame mapping profile-local (x, y, z) to world space.
+ *
+ * The three axes are NOT required to be right-handed — the finger-hole and
+ * large-bore cutters deliberately swap `up` and `right` to aim the extrusion
+ * down a different axis. Anything building a solid through this has to test
+ * `forward x up . right` and flip its winding when that is negative, or the
+ * solid comes out inside-out; buildExtrudedProfile does.
+ */
 data class LocalBasis(val origin: Vec3, val forward: Vec3, val up: Vec3, val right: Vec3) {
     fun toWorld(local: Vec3): Vec3 = origin + forward * local.x + up * local.y + right * local.z
 }

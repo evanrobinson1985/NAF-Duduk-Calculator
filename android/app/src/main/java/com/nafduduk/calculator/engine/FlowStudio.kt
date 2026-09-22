@@ -1,5 +1,6 @@
 package com.nafduduk.calculator.engine
 
+import com.nafduduk.calculator.util.jsFmt
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.log2
@@ -87,7 +88,7 @@ object CraftingDims {
         0.3125 -> "5/16″"
         0.34375 -> "11/32″"
         0.375 -> "3/8″"
-        else -> "%.3f″".format(v)
+        else -> jsFmt(v, 3) + "″"
     }
 }
 

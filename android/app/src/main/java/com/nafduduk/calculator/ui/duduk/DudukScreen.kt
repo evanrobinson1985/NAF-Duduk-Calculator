@@ -44,7 +44,7 @@ import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
 import com.nafduduk.calculator.ui.tuner.TunerPanel
-import java.util.Locale
+import com.nafduduk.calculator.util.jsFmtIn
 import kotlin.math.max
 import kotlin.math.min
 
@@ -260,5 +260,5 @@ private fun DudukHoleRow(num: Int, interval: String, thumb: Boolean, fromReed: D
     }
 }
 
-private fun fmtIn(v: Double): String = String.format(Locale.US, "%.2f\"", v)
-private fun fmtIn3(v: Double): String = String.format(Locale.US, "%.3f\"", v)
+private fun fmtIn(v: Double): String = jsFmtIn(v, 2)
+private fun fmtIn3(v: Double): String = jsFmtIn(v, 3)

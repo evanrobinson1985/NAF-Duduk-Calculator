@@ -55,8 +55,6 @@ import com.nafduduk.calculator.pdf.PdfDroneSummary
 import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
 import com.nafduduk.calculator.pdf.savePdfAndShare
-import com.nafduduk.calculator.ui.tuner.TunerPanel
-import com.nafduduk.calculator.ui.viewer3d.Viewer3DPanel
 import com.nafduduk.calculator.ui.common.FieldLabel
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
@@ -67,7 +65,9 @@ import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
 import com.nafduduk.calculator.ui.theme.Muted
-import java.util.Locale
+import com.nafduduk.calculator.ui.tuner.TunerPanel
+import com.nafduduk.calculator.ui.viewer3d.Viewer3DPanel
+import com.nafduduk.calculator.util.jsFmtIn
 
 /**
  * Ported from FlutePage's melody-chamber calculator (single chamber): key
@@ -636,5 +636,5 @@ private fun HoleRow(num: Int, interval: String, fromTsh: Double, diameter: Doubl
     }
 }
 
-private fun fmtIn(v: Double): String = String.format(Locale.US, "%.2f\"", v)
-private fun fmtIn3(v: Double): String = String.format(Locale.US, "%.3f\"", v)
+private fun fmtIn(v: Double): String = jsFmtIn(v, 2)
+private fun fmtIn3(v: Double): String = jsFmtIn(v, 3)

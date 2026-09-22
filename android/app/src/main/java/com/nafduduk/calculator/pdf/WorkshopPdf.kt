@@ -3,9 +3,9 @@ package com.nafduduk.calculator.pdf
 import android.graphics.pdf.PdfDocument
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.nearestNote
-import java.util.Locale
+import com.nafduduk.calculator.util.jsFmt
 
-private fun fmt(n: Double, dec: Int = 2): String = String.format(Locale.US, "%.${dec}f", n)
+private fun fmt(n: Double, dec: Int = 2): String = jsFmt(n, dec)
 
 fun pageHeader(c: PdfCanvas, title: String, subtitle: String) {
     c.setFont(bold = true)

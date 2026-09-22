@@ -13,6 +13,15 @@ package com.nafduduk.calculator.mesh
  * callers can list points in whichever order matches how the profile
  * reads on paper — some of the source's `Shape` point lists are CCW, some
  * CW, verified by hand for each one (see ChamberMeshBuilder.kt).
+ *
+ * The normalization also accounts for the basis's handedness. `LocalBasis`
+ * does not promise that forward x up = right: the finger-hole and large-bore
+ * cutters build one by swapping up and right to point the extrusion down a
+ * different axis, which makes the local-to-world map a reflection rather than
+ * a rotation, and a reflection turns every outward normal inward. A solid with
+ * inverted normals is inside-out as far as the BSP is concerned, so
+ * subtracting it intersects instead — which is exactly what an oval finger
+ * hole used to do to the body.
  */
 fun buildExtrudedProfile(points: List<Vec3>, depth: Double, basis: LocalBasis): CsgSolid {
     require(points.size >= 3) { "buildExtrudedProfile needs at least 3 points" }
@@ -22,7 +31,10 @@ fun buildExtrudedProfile(points: List<Vec3>, depth: Double, basis: LocalBasis): 
         val q = points[(i + 1) % points.size]
         p.x * q.y - q.x * p.y
     }
-    val ccw = if (signedArea2x < 0) points.reversed() else points
+    // Positive for a right-handed basis, negative for a reflected one.
+    val handedness = basis.forward.cross(basis.up).dot(basis.right)
+    val wantArea = if (handedness >= 0) 1.0 else -1.0
+    val ccw = if (signedArea2x * wantArea < 0) points.reversed() else points
 
     val z0 = -depth / 2
     val z1 = depth / 2

@@ -26,9 +26,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nafduduk.calculator.engine.FluteConst
 import com.nafduduk.calculator.engine.FlowDesign
 import com.nafduduk.calculator.engine.FlowHole
+import com.nafduduk.calculator.engine.FluteConst
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.bestPressureForNest
 import com.nafduduk.calculator.engine.buildChamberGeometry
@@ -47,7 +47,8 @@ import com.nafduduk.calculator.ui.common.SectionCard
 import com.nafduduk.calculator.ui.theme.Bg2
 import com.nafduduk.calculator.ui.theme.Bone
 import com.nafduduk.calculator.ui.theme.Gold
-import java.util.Locale
+import com.nafduduk.calculator.util.jsFmt
+import com.nafduduk.calculator.util.jsFmtIn
 
 private val PRESSURE_STEPS = listOf(150.0, 200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0, 600.0, 700.0)
 
@@ -270,7 +271,7 @@ private fun scoreColor(v: Int): Color = when {
     else -> Color(0xFFF87171)
 }
 
-private fun fmt0(v: Double): String = String.format(Locale.US, "%.0f", v)
-private fun fmt2(v: Double): String = String.format(Locale.US, "%.2f", v)
-private fun fmtIn3(v: Double): String = String.format(Locale.US, "%.3f\"", v)
-private fun fmtIn2(v: Double): String = String.format(Locale.US, "%.2f\"", v)
+private fun fmt0(v: Double): String = jsFmt(v, 0)
+private fun fmt2(v: Double): String = jsFmt(v, 2)
+private fun fmtIn3(v: Double): String = jsFmtIn(v, 3)
+private fun fmtIn2(v: Double): String = jsFmtIn(v, 2)

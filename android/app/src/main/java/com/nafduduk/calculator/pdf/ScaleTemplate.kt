@@ -1,6 +1,6 @@
 package com.nafduduk.calculator.pdf
 
-import java.util.Locale
+import com.nafduduk.calculator.util.jsFmt
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -8,7 +8,7 @@ import kotlin.math.round
 
 enum class ScaleTemplateMode { CUT, DRILL }
 
-private fun fmt(n: Double, dec: Int = 2): String = String.format(Locale.US, "%.${dec}f", n)
+private fun fmt(n: Double, dec: Int = 2): String = jsFmt(n, dec)
 
 /**
  * Ported 1:1 from drawScaleTemplate() in the web source: a true-scale

@@ -4,10 +4,42 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.PI
 
-/** Builds a quad (as two triangles isn't needed — CSG polygons can be n-gons) from 4 CCW vertices sharing one flat normal. */
+/** Builds a quad (CSG polygons can be n-gons) from 4 CCW vertices sharing one flat normal. */
 private fun quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3): Polygon {
     val n = (b - a).cross(d - a).normalized()
     return Polygon(listOf(Vertex(a, n), Vertex(b, n), Vertex(c, n), Vertex(d, n)))
+}
+
+/**
+ * The same quad, but split into two triangles when its four corners are not
+ * coplanar.
+ *
+ * Csg.kt's BSP assumes each polygon lies on the plane through its first three
+ * vertices: it decides which side of a node a polygon falls on from that
+ * plane, and treats it as coplanar when it matches the node's. A warped quad
+ * breaks that assumption, and the result is a polygon kept on the wrong side
+ * or dropped altogether — visible as holes in the exported surface of a
+ * *curved* body, which is exactly where the sweep's quads warp. Triangles are
+ * planar by construction, so the fix is to split only the warped ones and
+ * leave a straight body's genuinely flat quads alone (one polygon instead of
+ * two, and a flat side wall shares its plane with its neighbours, which the
+ * BSP collapses into a single node).
+ */
+private fun quadPlanar(a: Vec3, b: Vec3, c: Vec3, d: Vec3): List<Polygon> {
+    val n = (b - a).cross(d - a)
+    val len = n.length()
+    // Distance of the fourth corner from the plane of the first three, scaled
+    // out of the cross product's magnitude. The bound is an order of magnitude
+    // below Csg.kt's own Plane.EPSILON, so a quad that passes is one the BSP
+    // cannot tell from flat.
+    val warp = if (len < 1e-18) Double.MAX_VALUE else kotlin.math.abs(n.dot(c - a)) / len
+    if (warp < 1e-6) return listOf(quad(a, b, c, d))
+    val nAbc = (b - a).cross(c - a).normalized()
+    val nAcd = (c - a).cross(d - a).normalized()
+    return listOf(
+        Polygon(listOf(Vertex(a, nAbc), Vertex(b, nAbc), Vertex(c, nAbc))),
+        Polygon(listOf(Vertex(a, nAcd), Vertex(c, nAcd), Vertex(d, nAcd))),
+    )
 }
 
 private fun ngon(pts: List<Vec3>, normal: Vec3): Polygon = Polygon(pts.map { Vertex(it, normal) })
@@ -62,7 +94,7 @@ fun buildCappedTube(pathPoints: List<Vec3>, radius: Double, radialSegments: Int 
         val ringB = rings[i + 1]
         for (s in 0 until radialSegments) {
             val sNext = (s + 1) % radialSegments
-            polys.add(quad(ringA[s], ringB[s], ringB[sNext], ringA[sNext]))
+            polys.addAll(quadPlanar(ringA[s], ringB[s], ringB[sNext], ringA[sNext]))
         }
     }
 
