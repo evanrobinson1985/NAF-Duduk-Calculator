@@ -37,6 +37,9 @@ import com.nafduduk.calculator.pdf.dudukPdfFileName
 import com.nafduduk.calculator.pdf.exportDudukPdf
 import com.nafduduk.calculator.pdf.savePdfAndShare
 import com.nafduduk.calculator.ui.common.FieldLabel
+import com.nafduduk.calculator.ui.template.DudukDrillingTemplate
+import com.nafduduk.calculator.ui.template.DudukTemplateLayout
+import com.nafduduk.calculator.ui.template.TemplateDudukHole
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
@@ -185,6 +188,30 @@ fun DudukScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             ResultRow("Total length (tube + reed)", fmtIn(design.totalLenIn))
             ResultRow("Reed shaft diameter", fmtIn3(design.reedDiamIn))
             ResultRow("Nearest note", "${design.rootNote.name} (${design.rootNote.cents} cents)")
+        }
+
+        SectionCard {
+            FieldLabel("Drilling Template")
+            MutedNote(
+                "Reed seat and body at true relative scale, with each hole's distance from the top of the " +
+                    "reed seat. The thumb hole sits on the back of the tube, so it is drawn below the body.",
+            )
+            DudukDrillingTemplate(
+                layout = DudukTemplateLayout(
+                    bodyLenIn = design.tubeLenIn,
+                    reedLenIn = design.reedLenIn,
+                    boreIn = design.boreIn,
+                    holes = design.holes.map {
+                        TemplateDudukHole(
+                            num = it.num, thumb = it.thumb,
+                            fromReedIn = it.fromReedIn, diameterIn = it.diameterIn,
+                        )
+                    },
+                ),
+                rootNoteName = design.rootNote.name,
+                reedDiamIn = design.reedDiamIn,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
 
         SectionCard {

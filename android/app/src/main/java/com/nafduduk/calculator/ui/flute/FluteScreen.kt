@@ -57,6 +57,8 @@ import com.nafduduk.calculator.pdf.exportFlutePdf
 import com.nafduduk.calculator.pdf.flutePdfFileName
 import com.nafduduk.calculator.pdf.savePdfAndShare
 import com.nafduduk.calculator.ui.common.FieldLabel
+import com.nafduduk.calculator.ui.template.DrillingTemplate
+import com.nafduduk.calculator.ui.template.TemplateChamber
 import com.nafduduk.calculator.ui.common.MutedNote
 import com.nafduduk.calculator.ui.common.Pill
 import com.nafduduk.calculator.ui.common.PillRow
@@ -106,6 +108,9 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     // Nest voicing. Read by BOTH the 3D preview and the split-block CAM, so
     // what you see is what gets cut.
     var nestOverrides by remember { mutableStateOf(NestOverrides()) }
+    // Only the drilling template's own drawing — the body bow is a shaping
+    // step, not something the acoustics or the CAM paths depend on.
+    var templateCurve by rememberSaveable { mutableStateOf(Curve.STRAIGHT) }
 
     // "single" | "drone". Drone-chamber state isn't rememberSaveable (no Saver
     // written for the DroneChamber list yet) so it resets on a configuration
@@ -145,6 +150,29 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     val droneResults = if (fixUndone) rawDroneResults else audit.drones
 
     val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
+
+    // The chambers the on-screen drilling template draws, from the same
+    // audited geometry the exports use.
+    val templateChambers = remember(effGeometry, droneResults, fluteStyle, boreIn, selectedFreq, notes) {
+        listOf(
+            TemplateChamber(
+                label = "MELODY", boreIn = boreIn, sacLenIn = effGeometry.sacLenIn,
+                lengthIn = effGeometry.lengthIn, holes = effGeometry.holes, playable = true,
+                note = nearestNote(selectedFreq, notes),
+                breathHoleWidthIn = FluteConst.breathHoleWidth(boreIn),
+            ),
+        ) + if (fluteStyle == "drone") {
+            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                TemplateChamber(
+                    label = if (dr.playable) "CHAMBER ${i + 2}" else "DRONE ${i + 1}",
+                    boreIn = dr.boreIn, sacLenIn = dr.sacLenIn, lengthIn = dr.lengthIn,
+                    holes = dr.holes, playable = dr.playable, note = dr.note,
+                )
+            }
+        } else {
+            emptyList()
+        }
+    }
 
     // The chamber list every CAM export reads, built once from the audited
     // geometry: melody first, then any drone that came out buildable.
@@ -337,6 +365,28 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 value = mouthpieceMarginOverride,
                 autoValue = FluteConst.MOUTHPIECE_MARGIN,
                 onValue = { mouthpieceMarginOverride = it },
+            )
+        }
+
+        SectionCard {
+            FieldLabel("Drilling Template")
+            MutedNote(
+                "Every chamber at true relative scale, with each hole's distance from the sound hole (TSH). " +
+                    "A curved body is measured along the bore centerline, not the chord.",
+            )
+            PillRow {
+                Curve.entries.forEach { c ->
+                    Pill(
+                        text = c.name.lowercase().replaceFirstChar { it.titlecase() },
+                        selected = c == templateCurve,
+                        onClick = { templateCurve = c },
+                    )
+                }
+            }
+            DrillingTemplate(
+                chambers = templateChambers,
+                curve = templateCurve,
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
 
