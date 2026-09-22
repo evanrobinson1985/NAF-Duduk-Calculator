@@ -40,12 +40,6 @@ import com.nafduduk.calculator.engine.getNotes
 import com.nafduduk.calculator.engine.nearestNote
 import com.nafduduk.calculator.engine.recommendedBores
 import com.nafduduk.calculator.gcode.GcodeChamber
-import com.nafduduk.calculator.gcode.GcodeMethod
-import com.nafduduk.calculator.gcode.SplitBlockParams
-import com.nafduduk.calculator.gcode.TubeDrillingParams
-import com.nafduduk.calculator.gcode.computeEasyModeParams
-import com.nafduduk.calculator.gcode.generateSplitBlockGCode
-import com.nafduduk.calculator.gcode.generateTubeDrillingGCode
 import com.nafduduk.calculator.gcode.saveGcodeAndShare
 import com.nafduduk.calculator.library.FluteConfig
 import com.nafduduk.calculator.library.parseFluteConfig
@@ -125,6 +119,38 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
 
     val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
 
+    // The chamber list every CAM export reads, built once from the audited
+    // geometry: melody first, then any drone that came out buildable.
+    val exportChambers = remember(effGeometry, droneResults, boreIn, fluteStyle) {
+        listOf(
+            GcodeChamber(
+                lengthIn = effGeometry.lengthIn,
+                sacLenIn = effGeometry.sacLenIn,
+                boreIn = boreIn,
+                holes = effGeometry.holes,
+                playable = true,
+                label = "MELODY",
+                shWIn = effGeometry.soundHoleWidthIn,
+                shLIn = effGeometry.soundHoleLengthIn,
+            ),
+        ) + if (fluteStyle == "drone") {
+            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
+                GcodeChamber(
+                    lengthIn = dr.lengthIn,
+                    sacLenIn = dr.sacLenIn,
+                    boreIn = dr.boreIn,
+                    holes = dr.holes,
+                    playable = dr.playable,
+                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
+                    shWIn = dr.shWIn,
+                    shLIn = dr.shLIn,
+                )
+            }
+        } else {
+            emptyList()
+        }
+    }
+
     var showErgoAdjust by remember { mutableStateOf(false) }
     var showAntlerAssistant by remember { mutableStateOf(false) }
     var showFingerReach by remember { mutableStateOf(false) }
@@ -149,7 +175,6 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     var savedMsg by remember { mutableStateOf("") }
     var showTuner by remember { mutableStateOf(false) }
     var show3dPreview by remember { mutableStateOf(false) }
-    var splitStyle by rememberSaveable { mutableStateOf("nest-insert") } // "nest-insert" | "symmetric"
 
     Column(
         modifier = Modifier
@@ -509,128 +534,17 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     Text("Export Workshop PDF Packet", fontWeight = FontWeight.Bold)
                 }
 
-                Button(
-                    onClick = {
-                        val melodyChamber = GcodeChamber(
-                            lengthIn = effGeometry.lengthIn,
-                            sacLenIn = effGeometry.sacLenIn,
-                            boreIn = boreIn,
-                            holes = effGeometry.holes,
-                            playable = true,
-                            label = "MELODY",
-                            shWIn = effGeometry.soundHoleWidthIn,
-                            shLIn = effGeometry.soundHoleLengthIn,
-                        )
-                        val droneChambers = if (fluteStyle == "drone") {
-                            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
-                                GcodeChamber(
-                                    lengthIn = dr.lengthIn,
-                                    sacLenIn = dr.sacLenIn,
-                                    boreIn = dr.boreIn,
-                                    holes = dr.holes,
-                                    playable = dr.playable,
-                                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
-                                    shWIn = dr.shWIn,
-                                    shLIn = dr.shLIn,
-                                )
-                            }
-                        } else {
-                            emptyList()
-                        }
-                        val chambers = listOf(melodyChamber) + droneChambers
-                        val easy = computeEasyModeParams(chambers, GcodeMethod.TUBE)
-                        val gcode = generateTubeDrillingGCode(
-                            TubeDrillingParams(
-                                chambers = chambers,
-                                units = "in",
-                                toolDiameter = easy.toolDiameter,
-                                feedRate = easy.feedRate,
-                                plungeRate = easy.plungeRate,
-                                peckDepth = easy.peckDepth,
-                                safeHeight = easy.safeHeight,
-                                retractHeight = easy.retractHeight,
-                                dialect = "grbl",
-                                spindleSpeed = easy.spindleSpeed,
-                                setupMode = "fixed",
-                            ),
-                        )
-                        saveGcodeAndShare(context, gcode, "naf_flute_${holeCount}hole_tube_drilling.nc")
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Export CNC G-Code (Tube Drilling)", fontWeight = FontWeight.Bold)
-                }
-                MutedNote("Drills the sound hole, SAC exit, flue channel, and finger holes into an already-round tube.")
-
-                FieldLabel("Split-Block Style")
-                PillRow {
-                    Pill(text = "Embedded nest", selected = splitStyle == "nest-insert", onClick = { splitStyle = "nest-insert" })
-                    Pill(text = "Basic drilled layout", selected = splitStyle == "symmetric", onClick = { splitStyle = "symmetric" })
-                }
-                Button(
-                    onClick = {
-                        val melodyChamber = GcodeChamber(
-                            lengthIn = effGeometry.lengthIn,
-                            sacLenIn = effGeometry.sacLenIn,
-                            boreIn = boreIn,
-                            holes = effGeometry.holes,
-                            playable = true,
-                            label = "MELODY",
-                            shWIn = effGeometry.soundHoleWidthIn,
-                            shLIn = effGeometry.soundHoleLengthIn,
-                        )
-                        val droneChambers = if (fluteStyle == "drone") {
-                            droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
-                                GcodeChamber(
-                                    lengthIn = dr.lengthIn,
-                                    sacLenIn = dr.sacLenIn,
-                                    boreIn = dr.boreIn,
-                                    holes = dr.holes,
-                                    playable = dr.playable,
-                                    label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
-                                    shWIn = dr.shWIn,
-                                    shLIn = dr.shLIn,
-                                )
-                            }
-                        } else {
-                            emptyList()
-                        }
-                        val chambers = listOf(melodyChamber) + droneChambers
-                        val easy = computeEasyModeParams(chambers, GcodeMethod.SPLIT)
-                        val gcode = generateSplitBlockGCode(
-                            SplitBlockParams(
-                                chambers = chambers,
-                                curve = Curve.STRAIGHT,
-                                units = "in",
-                                toolDiameter = easy.toolDiameter,
-                                stepdown = easy.stepdown,
-                                feedRate = easy.feedRate,
-                                plungeRate = easy.plungeRate,
-                                safeHeight = easy.safeHeight,
-                                stockMarginX = easy.stockMarginX,
-                                stockMarginY = easy.stockMarginY,
-                                channelStyle = easy.channelStyle,
-                                dialect = "grbl",
-                                spindleSpeed = easy.spindleSpeed,
-                                alignPins = true,
-                                splitStyle = splitStyle,
-                                only = "all",
-                            ),
-                        )
-                        saveGcodeAndShare(context, gcode, "naf_flute_${holeCount}hole_split_block_${splitStyle}.nc")
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Bg2, contentColor = Bone),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Export CNC G-Code (Split-Block)", fontWeight = FontWeight.Bold)
-                }
+                FieldLabel("CNC Machining")
                 MutedNote(
-                    if (splitStyle == "nest-insert") {
-                        "Mills the full acoustic nest (ramp, flue, SAC exit, splitting edge) into two raw-stock blanks — a tall lower blank carrying the nest and a thin upper shell with the sound window. No flip; straight bodies only from this quick-export button (curved bodies need the curve param wired up — see android/README.md)."
-                    } else {
-                        "Basic drilled layout, hand-finish mode: the SAC and full bore are cut at true size; every other feature is a locating cut left undersized to hand-fit. The ramp and splitting edge are entirely hand-carved. Straight bodies only from this quick-export button."
-                    },
+                    "Both generators run off the audited geometry above. Curve is straight here — the body " +
+                        "bow is a 3D-preview and mesh-export feature; the CAM paths are cut flat and the blank " +
+                        "is bent or carved to the bow afterwards.",
+                )
+                CncExportPanel(
+                    chambers = exportChambers,
+                    curve = Curve.STRAIGHT,
+                    droneBody = "separate",
+                    onExport = { fileName, gcode -> saveGcodeAndShare(context, gcode, fileName) },
                 )
             }
         } else {
