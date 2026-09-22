@@ -146,6 +146,61 @@ fun main() {
         ))
     }
 
+    // ── geometry validation + auto-fix ──────────────────────────────
+    // JS validates the chamber object buildChamberGeometry returns, whose
+    // dimensions are fmt()-ROUNDED strings; the Kotlin geometry keeps full
+    // precision. Round the base here so both sides validate the same numbers
+    // — same reasoning as the ergonomic group below. Compared numerically
+    // rather than by issue text, because the messages interpolate raw numbers
+    // and JS prints 42 where Kotlin prints 42.0.
+    val vRaw = buildChamberGeometry(bore = 0.75, freq = 369.99, holeCount = 6)
+    val vBase = vRaw.copy(
+        lengthIn = pf(vRaw.lengthIn, 2),
+        sacLenIn = pf(vRaw.sacLenIn, 2),
+        totalLenIn = vRaw.totalLenIn?.let { pf(it, 2) },
+        mouthpieceMarginIn = pf(vRaw.mouthpieceMarginIn, 2),
+        soundHoleWidthIn = pf(vRaw.soundHoleWidthIn, 2),
+        soundHoleLengthIn = pf(vRaw.soundHoleLengthIn, 2),
+        holes = vRaw.holes.map {
+            it.copy(fromFootIn = pf(it.fromFootIn, 2), fromTshIn = pf(it.fromTshIn, 2), diameterIn = pf(it.diameterIn, 3))
+        },
+    )
+    val vMinGap = vBase.holes.sortedBy { it.fromTshIn }.zipWithNext()
+        .minOf { (a, b) -> b.fromTshIn - a.fromTshIn }
+    val vCases = listOf<Pair<String, (ChamberGeometry) -> ChamberGeometry>>(
+        "sound" to { c -> c },
+        "sacHigh" to { c -> c.copy(sacLenIn = 42.0) },
+        "sacLow" to { c -> c.copy(sacLenIn = 0.1) },
+        "soundHole" to { c -> c.copy(soundHoleWidthIn = 0.9, soundHoleLengthIn = 0.1) },
+        "totalLen" to { c -> c.copy(totalLenIn = 1.0) },
+        "holeSum" to { c ->
+            c.copy(holes = c.holes.mapIndexed { i, h -> if (i == 0) h.copy(fromFootIn = h.fromFootIn + 1) else h })
+        },
+        "overlap" to { c -> c.copy(holes = c.holes.map { it.copy(diameterIn = vMinGap * 1.5) }) },
+        "everything" to { c ->
+            c.copy(
+                sacLenIn = 42.0, soundHoleWidthIn = 0.9, totalLenIn = 1.0,
+                holes = c.holes.map { it.copy(diameterIn = vMinGap * 1.5) },
+            )
+        },
+    )
+    for ((name, mutate) in vCases) {
+        val chamber = mutate(vBase)
+        val rep = validateChamberGeometry(chamber, "Melody")
+        val fixed = fixChamberGeometry(chamber, "Melody")
+        val after = validateChamberGeometry(fixed.geometry, "Melody")
+        val fx = fixed.geometry
+        put("validate.$name", linkedMapOf<String, Any?>(
+            "valid" to rep.valid,
+            "issueCount" to rep.issues.size,
+            "fixCount" to fixed.fixes.size,
+            "validAfterFix" to after.valid,
+            "sacLen" to pf(fx.sacLenIn, 6), "shW" to pf(fx.soundHoleWidthIn, 6),
+            "shL" to pf(fx.soundHoleLengthIn, 6), "totalLen" to (fx.totalLenIn?.let { pf(it, 6) }),
+            "holes" to fx.holes.map { "${it.num}/${n6(pf(it.fromTshIn, 6))}/${n6(pf(it.fromFootIn, 6))}/${n6(pf(it.diameterIn, 6))}" },
+        ))
+    }
+
     // ── ergonomic adjust + finger reach ─────────────────────────────
     // JS feeds the ROUNDED geometry holes into these; mirror that so the
     // comparison isolates formulas from the geometry rounding boundary.

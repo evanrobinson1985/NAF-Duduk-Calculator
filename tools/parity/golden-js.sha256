@@ -103,3 +103,11 @@ a82e56fbdfa64287bcfffb5f9170f4a1  recommendedBores.110
 57b134d8721973983262c6575c0a98e2  snapToCommonBit
 46667ea6f2ab1f4a0bc61551ce745530  toUnits
 4ff7ff5ad6b37b04c839b2f5daa9020a  tubeLen
+b71fd474efe5992f1b00cccc1eba0d57  validate.everything
+590d416d0595ca726ab5cb5f399fe007  validate.holeSum
+13f2e16e89e53ca2c41d4ab054ed0766  validate.overlap
+8c7ec3be08baa99651fcb99144df49e4  validate.sacHigh
+8c7ec3be08baa99651fcb99144df49e4  validate.sacLow
+590d416d0595ca726ab5cb5f399fe007  validate.sound
+bb2e038c2196f1c17b5bbe75f3f33fb8  validate.soundHole
+2ae41c4a4b0a53a31bfecba580e59f56  validate.totalLen

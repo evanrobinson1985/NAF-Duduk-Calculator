@@ -33,6 +33,7 @@ import com.nafduduk.calculator.engine.DroneChamber
 import com.nafduduk.calculator.engine.ErgoOverride
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
+import com.nafduduk.calculator.engine.auditFluteChambers
 import com.nafduduk.calculator.engine.buildChamberGeometry
 import com.nafduduk.calculator.engine.buildDroneResults
 import com.nafduduk.calculator.engine.getNotes
@@ -105,9 +106,23 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     val geometry = remember(boreIn, selectedFreq, holeCount, handSize, ergoOverride) {
         buildChamberGeometry(bore = boreIn, freq = selectedFreq, holeCount = holeCount, handSize = handSize, ergoOverride = ergoOverride)
     }
-    val droneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry) {
+    val rawDroneResults = remember(fluteStyle, drones, selectedFreq, notes, handSize, geometry) {
         if (fluteStyle == "drone") buildDroneResults(drones, selectedFreq, notes, handSize, "round", geometry) else emptyList()
     }
+
+    // Geometry validation runs by itself on every upstream change, exactly as
+    // the web source does it: anything that disagrees with the shared
+    // formulas is corrected on the spot and the corrections are listed, and
+    // the corrected geometry — not the flagged one — is what the table, the
+    // 3D preview, the PDF and the G-code all read. `fixUndone` lets a maker
+    // keep their own numbers, and resets on the next edit so it can never
+    // silently outlive the values it was pressed for.
+    val audit = remember(geometry, rawDroneResults) { auditFluteChambers(geometry, rawDroneResults) }
+    var fixUndone by remember { mutableStateOf(false) }
+    LaunchedEffect(audit) { fixUndone = false }
+    val effGeometry = if (fixUndone) geometry else audit.melody
+    val droneResults = if (fixUndone) rawDroneResults else audit.drones
+
     val allDronesValid = fluteStyle == "drone" && droneResults.isNotEmpty() && droneResults.all { it.lengthIn > 0 && it.note != null }
 
     var showErgoAdjust by remember { mutableStateOf(false) }
@@ -326,14 +341,14 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
             }
         }
 
-        if (geometry.playable) {
+        if (effGeometry.playable) {
             SectionCard {
                 FieldLabel("Results")
-                ResultRow("Tube length (L)", fmtIn(geometry.lengthIn))
-                geometry.totalLenIn?.let { ResultRow("Total blank length", fmtIn(it)) }
-                ResultRow("SAC (slow-air chamber) length", fmtIn(geometry.sacLenIn))
-                ResultRow("Sound-hole width", fmtIn(geometry.soundHoleWidthIn))
-                ResultRow("Sound-hole length", fmtIn(geometry.soundHoleLengthIn))
+                ResultRow("Tube length (L)", fmtIn(effGeometry.lengthIn))
+                effGeometry.totalLenIn?.let { ResultRow("Total blank length", fmtIn(it)) }
+                ResultRow("SAC (slow-air chamber) length", fmtIn(effGeometry.sacLenIn))
+                ResultRow("Sound-hole width", fmtIn(effGeometry.soundHoleWidthIn))
+                ResultRow("Sound-hole length", fmtIn(effGeometry.soundHoleLengthIn))
             }
 
             SectionCard {
@@ -346,7 +361,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 if (show3dPreview) {
                     Column(modifier = Modifier.padding(top = 12.dp)) {
                         Viewer3DPanel(
-                            geometry = geometry,
+                            geometry = effGeometry,
                             fileBaseName = "naf_flute_${holeCount}hole_${noteKey.replace("#", "sharp")}",
                         )
                     }
@@ -399,11 +414,11 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 if (savedMsg.isNotEmpty()) MutedNote(savedMsg)
             }
 
-            if (geometry.holes.isNotEmpty()) {
+            if (effGeometry.holes.isNotEmpty()) {
                 SectionCard {
                     FieldLabel("Finger Holes (from mouth end / TSH)")
                     HoleTableHeader()
-                    geometry.holes.sortedByDescending { it.num }.forEach { h ->
+                    effGeometry.holes.sortedByDescending { it.num }.forEach { h ->
                         HoleRow(num = h.num, interval = h.interval, fromTsh = h.fromTshIn, diameter = h.diameterIn)
                     }
                     Row(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -424,6 +439,9 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     SectionCard {
                         FieldLabel("Ergonomic Hole Adjustment")
                         ErgonomicAdjustPanel(
+                            // Deliberately the raw geometry: these are the
+                            // theoretical positions the adjustment edits FROM,
+                            // so they must not themselves be audit-corrected.
                             holes = geometry.theoreticalHoles,
                             applied = ergoOverride != null,
                             onApply = { override -> ergoOverride = override },
@@ -435,9 +453,16 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 if (showFingerReach) {
                     SectionCard {
                         FieldLabel("Finger Reach Analyzer")
-                        FingerReachPanel(holes = geometry.holes, boreIn = boreIn, holeCount = holeCount)
+                        FingerReachPanel(holes = effGeometry.holes, boreIn = boreIn, holeCount = holeCount)
                     }
                 }
+
+                GeometryAuditBanner(
+                    audit = audit,
+                    fixUndone = fixUndone,
+                    onUndo = { fixUndone = true },
+                    onReapply = { fixUndone = false },
+                )
 
                 Button(
                     onClick = {
@@ -461,12 +486,12 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                         }
                         val pdfData = FlutePdfData(
                             boreIn = boreIn,
-                            lengthIn = geometry.lengthIn,
-                            holes = geometry.holes,
+                            lengthIn = effGeometry.lengthIn,
+                            holes = effGeometry.holes,
                             holeCount = holeCount,
                             rootNote = rootNote,
-                            totalLenIn = geometry.totalLenIn ?: geometry.lengthIn,
-                            sacLenIn = geometry.sacLenIn,
+                            totalLenIn = effGeometry.totalLenIn ?: effGeometry.lengthIn,
+                            sacLenIn = effGeometry.sacLenIn,
                             handSize = handSize.name.lowercase(),
                             antlerShape = "straight",
                             pipeMaterial = "straight",
@@ -487,14 +512,14 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 Button(
                     onClick = {
                         val melodyChamber = GcodeChamber(
-                            lengthIn = geometry.lengthIn,
-                            sacLenIn = geometry.sacLenIn,
+                            lengthIn = effGeometry.lengthIn,
+                            sacLenIn = effGeometry.sacLenIn,
                             boreIn = boreIn,
-                            holes = geometry.holes,
+                            holes = effGeometry.holes,
                             playable = true,
                             label = "MELODY",
-                            shWIn = geometry.soundHoleWidthIn,
-                            shLIn = geometry.soundHoleLengthIn,
+                            shWIn = effGeometry.soundHoleWidthIn,
+                            shLIn = effGeometry.soundHoleLengthIn,
                         )
                         val droneChambers = if (fluteStyle == "drone") {
                             droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
@@ -546,14 +571,14 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 Button(
                     onClick = {
                         val melodyChamber = GcodeChamber(
-                            lengthIn = geometry.lengthIn,
-                            sacLenIn = geometry.sacLenIn,
+                            lengthIn = effGeometry.lengthIn,
+                            sacLenIn = effGeometry.sacLenIn,
                             boreIn = boreIn,
-                            holes = geometry.holes,
+                            holes = effGeometry.holes,
                             playable = true,
                             label = "MELODY",
-                            shWIn = geometry.soundHoleWidthIn,
-                            shLIn = geometry.soundHoleLengthIn,
+                            shWIn = effGeometry.soundHoleWidthIn,
+                            shLIn = effGeometry.soundHoleLengthIn,
                         )
                         val droneChambers = if (fluteStyle == "drone") {
                             droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->

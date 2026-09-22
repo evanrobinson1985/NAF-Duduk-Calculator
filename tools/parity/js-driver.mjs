@@ -62,6 +62,44 @@ geomCases.forEach((c, i) => {
   });
 });
 
+// ── geometry validation + auto-fix ──────────────────────────────────
+// Compared numerically rather than by issue text: the messages interpolate
+// raw numbers, and JS prints 42 where Kotlin prints 42.0. What has to agree
+// is which cases are flagged, how many corrections each needs, and — the part
+// every export actually reads — the corrected numbers.
+const vBase = E.buildChamberGeometry({ bore: 0.75, freq: 369.99, holeCount: 6 });
+const vClone = () => JSON.parse(JSON.stringify(vBase));
+const vMinGap = (() => {
+  const s = [...vBase.holes].sort((a, b) => parseFloat(a.fromTSH) - parseFloat(b.fromTSH));
+  let m = Infinity;
+  for (let i = 0; i < s.length - 1; i++) m = Math.min(m, parseFloat(s[i + 1].fromTSH) - parseFloat(s[i].fromTSH));
+  return m;
+})();
+const vCases = {
+  sound: (c) => c,
+  sacHigh: (c) => { c.sacLen = 42; return c; },
+  sacLow: (c) => { c.sacLen = 0.1; return c; },
+  soundHole: (c) => { c.shW = 0.9; c.shL = 0.1; return c; },
+  totalLen: (c) => { c.totalLen = 1; return c; },
+  holeSum: (c) => { c.holes[0].fromFoot = parseFloat(c.holes[0].fromFoot) + 1; return c; },
+  overlap: (c) => { c.holes.forEach(h => { h.diameter = vMinGap * 1.5; }); return c; },
+  everything: (c) => { c.sacLen = 42; c.shW = 0.9; c.totalLen = 1; c.holes.forEach(h => { h.diameter = vMinGap * 1.5; }); return c; },
+};
+Object.entries(vCases).forEach(([name, mutate]) => {
+  const chamber = mutate(vClone());
+  const rep = E.validateChamberGeometry(chamber, 'Melody');
+  const { chamber: fx, fixes } = E.fixChamberGeometry(chamber, 'Melody');
+  const after = E.validateChamberGeometry(fx, 'Melody');
+  put(`validate.${name}`, {
+    valid: !!rep.valid,
+    issueCount: rep.issues.length,
+    fixCount: fixes.length,
+    validAfterFix: !!after.valid,
+    sacLen: pf(fx.sacLen), shW: pf(fx.shW), shL: pf(fx.shL), totalLen: pf(fx.totalLen),
+    holes: (fx.holes || []).map(h => `${h.num}/${pf(h.fromTSH)}/${pf(h.fromFoot)}/${pf(h.diameter)}`),
+  });
+});
+
 // ── ergonomic adjust + finger reach ─────────────────────────────────
 const baseHoles = E.buildChamberGeometry({ bore: 0.75, freq: 369.99, holeCount: 6 }).holes;
 [0, 0.25, 0.5, 0.75, 1].forEach(b => {
