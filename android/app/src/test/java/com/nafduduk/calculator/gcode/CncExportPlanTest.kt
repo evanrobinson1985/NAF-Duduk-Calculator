@@ -150,4 +150,29 @@ class CncExportPlanTest {
             assertFalse("${p.key} must not emit a non-finite coordinate", Regex("""[XYZIJF](NaN|-?Infinity)""").containsMatchIn(g))
         }
     }
+
+    @Test
+    fun `nest overrides reach the generated G-code`() {
+        // The panel, the 3D preview and the CAM all read the same resolver
+        // (engine/NestOverrides.kt); if the CAM ignored the overrides the
+        // preview would be advertising a nest the machine never cuts.
+        val stock = buildGcodePrograms(CncSettings(), listOf(melody), Curve.STRAIGHT, "separate").last().build()
+        val voiced = buildGcodePrograms(
+            CncSettings(),
+            listOf(
+                melody.copy(
+                    nestOverrides = com.nafduduk.calculator.engine.NestOverrides(
+                        wallThicknessIn = 0.16, flueDepthIn = 0.05, flueLengthIn = 0.9,
+                        rampAngleDeg = 14.0, fippleAngleDeg = 28.0,
+                    ),
+                ),
+            ),
+            Curve.STRAIGHT, "separate",
+        ).last().build()
+
+        assertNotEquals("an overridden nest must change the toolpaths", stock, voiced)
+        assertFalse("and must not produce a non-finite coordinate", Regex("""[XYZIJF](NaN|-?Infinity)""").containsMatchIn(voiced))
+        assertTrue(voiced.contains("M3"))
+        assertTrue(voiced.contains("M5"))
+    }
 }

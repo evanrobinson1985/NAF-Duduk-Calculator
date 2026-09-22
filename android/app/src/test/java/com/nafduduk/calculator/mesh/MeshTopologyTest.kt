@@ -180,4 +180,25 @@ class MeshTopologyTest {
         }
         assertEquals("triangulated area must equal the L-shape's area", 3.0, area, 1e-9)
     }
+
+    @Test
+    fun `nest overrides reach the mesh and still leave it closed`() {
+        // The preview must actually cut what the panel asks for — and the
+        // repair pass has to survive a nest that is not the default shape.
+        val g = geom()
+        val stock = buildChamberSolid(g, Curve.STRAIGHT)
+        val voiced = buildChamberSolid(
+            g, Curve.STRAIGHT,
+            nest = com.nafduduk.calculator.engine.NestOverrides(
+                wallThicknessIn = 0.16, flueDepthIn = 0.05, flueLengthIn = 0.9,
+                rampAngleDeg = 14.0, rampCurve = 0.6, fippleAngleDeg = 28.0,
+                backsetIn = 0.08, tipHeightIn = 0.02, tipFlatIn = 0.02,
+            ),
+        )
+        assertTrue(
+            "an overridden nest must change the solid",
+            topologyReport(exportableSolid(stock)).triangles != topologyReport(exportableSolid(voiced)).triangles,
+        )
+        assertClosed("voiced nest", voiced)
+    }
 }

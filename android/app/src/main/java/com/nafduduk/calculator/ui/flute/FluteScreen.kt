@@ -36,6 +36,7 @@ import com.nafduduk.calculator.engine.DroneChamber
 import com.nafduduk.calculator.engine.ErgoOverride
 import com.nafduduk.calculator.engine.FluteConst
 import com.nafduduk.calculator.engine.HOLE_SHAPES
+import com.nafduduk.calculator.engine.NestOverrides
 import com.nafduduk.calculator.engine.HandSize
 import com.nafduduk.calculator.engine.SCALE_CONFIGS
 import com.nafduduk.calculator.engine.auditFluteChambers
@@ -102,6 +103,9 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
     // own Number.isFinite() checks.
     var sacLenOverride by rememberSaveable { mutableStateOf<Double?>(null) }
     var mouthpieceMarginOverride by rememberSaveable { mutableStateOf<Double?>(null) }
+    // Nest voicing. Read by BOTH the 3D preview and the split-block CAM, so
+    // what you see is what gets cut.
+    var nestOverrides by remember { mutableStateOf(NestOverrides()) }
 
     // "single" | "drone". Drone-chamber state isn't rememberSaveable (no Saver
     // written for the DroneChamber list yet) so it resets on a configuration
@@ -144,7 +148,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
 
     // The chamber list every CAM export reads, built once from the audited
     // geometry: melody first, then any drone that came out buildable.
-    val exportChambers = remember(effGeometry, droneResults, boreIn, fluteStyle) {
+    val exportChambers = remember(effGeometry, droneResults, boreIn, fluteStyle, nestOverrides) {
         listOf(
             GcodeChamber(
                 lengthIn = effGeometry.lengthIn,
@@ -155,6 +159,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                 label = "MELODY",
                 shWIn = effGeometry.soundHoleWidthIn,
                 shLIn = effGeometry.soundHoleLengthIn,
+                nestOverrides = nestOverrides,
             ),
         ) + if (fluteStyle == "drone") {
             droneResults.filter { it.lengthIn > 0 }.mapIndexed { i, dr ->
@@ -167,6 +172,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                     label = if (dr.playable) "CHAMBER ${i + 2} (PLAYABLE)" else "DRONE ${i + 1}",
                     shWIn = dr.shWIn,
                     shLIn = dr.shLIn,
+                    nestOverrides = nestOverrides,
                 )
             }
         } else {
@@ -335,6 +341,15 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
         }
 
         SectionCard {
+            NestOverridePanel(
+                boreIn = boreIn,
+                soundHoleWidthIn = effGeometry.soundHoleWidthIn,
+                overrides = nestOverrides,
+                onChange = { nestOverrides = it },
+            )
+        }
+
+        SectionCard {
             FieldLabel("Antler Selection Assistant")
             Button(
                 onClick = { showAntlerAssistant = !showAntlerAssistant },
@@ -484,6 +499,7 @@ fun FluteScreen(loadConfigJson: String? = null, onConfigLoaded: () -> Unit = {})
                             geometry = effGeometry,
                             fileBaseName = "naf_flute_${holeCount}hole_${noteKey.replace("#", "sharp")}",
                             holeShapeKey = holeShapeKey,
+                            nest = nestOverrides,
                         )
                     }
                 }

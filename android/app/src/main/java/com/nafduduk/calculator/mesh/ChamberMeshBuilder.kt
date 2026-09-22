@@ -3,6 +3,8 @@ package com.nafduduk.calculator.mesh
 import com.nafduduk.calculator.engine.ChamberGeometry
 import com.nafduduk.calculator.engine.Curve
 import com.nafduduk.calculator.engine.FluteConst
+import com.nafduduk.calculator.engine.NestOverrides
+import com.nafduduk.calculator.engine.ResolvedNest
 import com.nafduduk.calculator.engine.curveBowAmplitudeIn
 import kotlin.math.PI
 import kotlin.math.max
@@ -30,7 +32,13 @@ import kotlin.math.tan
  * STL/3D printing anyway. The bird block (birdKey === "default") isn't
  * built at all: this app has no bird-style picker.
  */
-fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String = "round", radialSegments: Int = 0): CsgSolid {
+fun buildChamberSolid(
+    geom: ChamberGeometry,
+    curve: Curve,
+    holeShapeKey: String = "round",
+    nest: NestOverrides = NestOverrides(),
+    radialSegments: Int = 0,
+): CsgSolid {
     val bowAmp = curveBowAmplitudeIn(curve)
     val totalLen = geom.sacLenIn + geom.lengthIn
 
@@ -50,7 +58,11 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
 
     val bore = geom.bore
     val r = bore / 2
-    val wallT = max(0.05, r * 0.28)
+    // Override-or-formula, resolved by the SAME helper the split-block CAM
+    // uses (engine/NestOverrides.kt), so the preview cannot show one nest
+    // while the machine cuts another.
+    val n = ResolvedNest(bore, geom.soundHoleWidthIn, nest)
+    val wallT = n.wallThicknessIn
     val outerR = r + wallT
     val tTsh = (geom.sacLenIn / totalLen).coerceIn(0.0, 1.0)
 
@@ -70,12 +82,12 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
 
     val fluteChannelBoreLimit = 2.0
     if (bore <= fluteChannelBoreLimit) {
-        val flueDepth = FluteConst.flueDepth(bore)
-        val flueLength = 2 * shW
+        val flueDepth = n.flueDepthIn
+        val flueLength = n.flueLengthIn
         val overshoot = max(0.03, r * 0.08)
         val tshCutDepth = wallT + overshoot
-        val fippleAngleDeg = 35.0
-        val rampAngleDegEffective = FluteConst.SAC_EXIT_RAMP_ANGLE_DEG
+        val fippleAngleDeg = n.fippleAngleDeg
+        val rampAngleDegEffective = n.rampAngleDeg
         val rampRad = max(0.1, rampAngleDegEffective * PI / 180)
 
         val xTsh0 = 0.0
@@ -84,15 +96,15 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
         val xExit1 = xFlue0
         val xExit0 = xExit1 - shL
 
-        val tipHeight = (1.0 / 128).coerceIn(0.0, flueDepth * 0.9)
+        val tipHeight = n.tipHeightIn
         val tipY = -flueDepth + tipHeight
-        val tipFlat = (0.01).coerceIn(0.0, 0.06)
+        val tipFlat = n.tipFlatIn
         val tipYLow = tipY - tipFlat / 2
         val tipYHigh = tipY + tipFlat / 2
         val fippleRad = max(4.0, fippleAngleDeg) * PI / 180
         val bevRun = max(0.01, (tshCutDepth + tipYLow) / tan(fippleRad))
         val topRun = (-tipYHigh) / tan(15 * PI / 180)
-        val backset = 0.0.coerceIn(0.0, min(bore / 3, flueLength * 0.6))
+        val backset = n.backsetIn
 
         val ceilRun = tshCutDepth / tan(rampRad)
 
@@ -123,7 +135,7 @@ fun buildChamberSolid(geom: ChamberGeometry, curve: Curve, holeShapeKey: String 
         val rampRise = (-flueDepth) - yBot
         val rampRun = min(rampRise / tan(rampRad), max(0.1, geom.sacLenIn * 0.7))
         val xRampBase = xExit1 - rampRun
-        val rampCurveK = 0.0.coerceIn(0.0, 1.0) // no nest-override UI yet — always the straight ramp face
+        val rampCurveK = n.rampCurve
 
         val blockPoints = mutableListOf(Vec3(xRampBase, yBot, 0.0))
         if (rampCurveK > 0.01) {

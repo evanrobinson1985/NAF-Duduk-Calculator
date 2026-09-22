@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.nafduduk.calculator.engine.ChamberGeometry
 import com.nafduduk.calculator.engine.Curve
+import com.nafduduk.calculator.engine.NestOverrides
 import com.nafduduk.calculator.mesh.CsgSolid
 import com.nafduduk.calculator.mesh.buildChamberSolid
 import com.nafduduk.calculator.mesh.exportGltf
@@ -49,15 +50,20 @@ import kotlinx.coroutines.withContext
  * the Filament-API caveat.
  */
 @Composable
-fun Viewer3DPanel(geometry: ChamberGeometry, fileBaseName: String, holeShapeKey: String = "round") {
+fun Viewer3DPanel(
+    geometry: ChamberGeometry,
+    fileBaseName: String,
+    holeShapeKey: String = "round",
+    nest: NestOverrides = NestOverrides(),
+) {
     val context = LocalContext.current
     var curve by remember { mutableStateOf(Curve.STRAIGHT) }
     var solid by remember { mutableStateOf<CsgSolid?>(null) }
     var building by remember { mutableStateOf(true) }
 
-    LaunchedEffect(geometry, curve, holeShapeKey) {
+    LaunchedEffect(geometry, curve, holeShapeKey, nest) {
         building = true
-        solid = withContext(Dispatchers.Default) { buildChamberSolid(geometry, curve, holeShapeKey) }
+        solid = withContext(Dispatchers.Default) { buildChamberSolid(geometry, curve, holeShapeKey, nest) }
         building = false
     }
 

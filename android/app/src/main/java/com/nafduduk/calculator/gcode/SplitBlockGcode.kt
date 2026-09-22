@@ -2,6 +2,7 @@ package com.nafduduk.calculator.gcode
 
 import com.nafduduk.calculator.engine.Curve
 import com.nafduduk.calculator.engine.FluteConst
+import com.nafduduk.calculator.engine.ResolvedNest
 import com.nafduduk.calculator.engine.curveBowAmplitudeIn
 import kotlin.math.PI
 import kotlin.math.ceil
@@ -159,26 +160,29 @@ internal data class NestCalc(
     val rampRun: Double,
 )
 
-/** Per-chamber nest dimensions, resolved exactly as the 3D preview (ChamberMeshBuilder.kt) does. */
+/**
+ * Per-chamber nest dimensions. The override-or-formula resolution lives in
+ * engine/NestOverrides.kt and is shared with the 3D preview
+ * (mesh/ChamberMeshBuilder.kt) — it was written out twice before, which is
+ * exactly how a preview starts showing one nest while the machine cuts
+ * another. The X stations below are this generator's own.
+ */
 internal fun computeNest(c: GcodeChamber): NestCalc {
     val r = c.boreIn / 2
-    val wallT = if (c.nestWallThicknessIn != null && c.nestWallThicknessIn > 0) {
-        max(0.04, min(c.nestWallThicknessIn, 0.5))
-    } else {
-        max(0.05, r * 0.28)
-    }
     val shW = if (c.shWIn > 0) c.shWIn else FluteConst.soundHoleWidth(c.boreIn)
     val shL = if (c.shLIn > 0) c.shLIn else FluteConst.soundHoleLength(c.boreIn)
-    val flueL = if (c.nestFlueLengthIn != null && c.nestFlueLengthIn > 0) max(0.1, min(c.nestFlueLengthIn, 2.0)) else 2 * shW
-    val flueD = if (c.nestFlueDepthIn != null && c.nestFlueDepthIn > 0) c.nestFlueDepthIn else FluteConst.flueDepth(c.boreIn)
-    val rampDeg = if (c.nestRampAngleDeg != null && c.nestRampAngleDeg > 0) c.nestRampAngleDeg else FluteConst.SAC_EXIT_RAMP_ANGLE_DEG
-    val rampCurve = (c.nestRampCurve ?: 0.0).coerceIn(0.0, 1.0)
-    val fippleDeg = if (c.nestFippleAngleDeg != null && c.nestFippleAngleDeg > 0) c.nestFippleAngleDeg else 35.0
-    val backset = max(0.0, min(c.nestBacksetIn ?: 0.0, min(c.boreIn / 3, flueL * 0.6)))
+    val n = ResolvedNest(c.boreIn, shW, c.nestOverrides)
+    val wallT = n.wallThicknessIn
+    val flueL = n.flueLengthIn
+    val flueD = n.flueDepthIn
+    val rampDeg = n.rampAngleDeg
+    val rampCurve = n.rampCurve
+    val fippleDeg = n.fippleAngleDeg
+    val backset = n.backsetIn
     val overshoot = max(0.03, r * 0.08)
     val tshCutDepth = wallT + overshoot // from the outer apex, through the wall into the bore
-    val tipHeight = max(0.0, min(c.nestTipHeightIn ?: (1.0 / 128), flueD * 0.9))
-    val tipFlat = max(0.0, min(c.nestTipFlatIn ?: 0.01, 0.06))
+    val tipHeight = n.tipHeightIn
+    val tipFlat = n.tipFlatIn
     // ── Nest stations along X (0 = mouth end of the blank) ──────────
     //   ...SAC... [ramp ↗] [BLOCK: solid wall] | TSH window | ...bore...
     val xTsh0 = c.sacLenIn

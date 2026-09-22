@@ -2,6 +2,8 @@ package com.nafduduk.calculator.gcode
 
 import com.nafduduk.calculator.engine.FingerHole
 import com.nafduduk.calculator.engine.FluteConst
+import com.nafduduk.calculator.engine.NestOverrides
+import com.nafduduk.calculator.engine.ResolvedNest
 import com.nafduduk.calculator.util.jsFmt
 import java.time.LocalDate
 import kotlin.math.max
@@ -56,12 +58,7 @@ fun toUnits(inches: Double, units: String): Double = if (units == "mm") inches *
  * walls merged by the wall-thickness dimension.
  */
 fun chamberYOffsets(chambers: List<GcodeChamber>): List<Double> {
-    fun wallTFor(cc: GcodeChamber): Double =
-        if (cc.nestWallThicknessIn != null && cc.nestWallThicknessIn > 0) {
-            cc.nestWallThicknessIn.coerceIn(0.04, 0.5)
-        } else {
-            max(0.05, (cc.boreIn / 2) * 0.28)
-        }
+    fun wallTFor(cc: GcodeChamber): Double = ResolvedNest(cc.boreIn, cc.effShW, cc.nestOverrides).wallThicknessIn
     fun outerRFor(cc: GcodeChamber): Double = cc.boreIn / 2 + wallTFor(cc)
 
     val ys = mutableListOf<Double>()
@@ -148,24 +145,15 @@ data class GcodeChamber(
     val label: String,
     val shWIn: Double,
     val shLIn: Double,
-    // Nest overrides — null means "use the FLUTE_CONST bore-derived default", same as the web source's Number.isFinite(...) checks.
-    val nestFlueLengthIn: Double? = null,
-    val nestFlueDepthIn: Double? = null,
-    val nestWallThicknessIn: Double? = null,
+    /** Nest voicing overrides; every field null means "use the bore-derived default". */
+    val nestOverrides: NestOverrides = NestOverrides(),
     val breathHoleWidthIn: Double? = null,
     val breathHoleLengthIn: Double? = null,
-    // Only read by the split-block generator (no override UI yet on Android — always null/auto).
-    val nestRampAngleDeg: Double? = null,
-    val nestRampCurve: Double? = null,
-    val nestFippleAngleDeg: Double? = null,
-    val nestBacksetIn: Double? = null,
-    val nestTipHeightIn: Double? = null,
-    val nestTipFlatIn: Double? = null,
 ) {
     val effShW get() = if (shWIn > 0) shWIn else FluteConst.soundHoleWidth(boreIn)
     val effShL get() = if (shLIn > 0) shLIn else FluteConst.soundHoleLength(boreIn)
-    val effFlueLen get() = if (nestFlueLengthIn != null && nestFlueLengthIn > 0) nestFlueLengthIn else 2 * effShW
-    val effFlueDepth get() = if (nestFlueDepthIn != null && nestFlueDepthIn > 0) nestFlueDepthIn else FluteConst.flueDepth(boreIn)
+    val effFlueLen get() = ResolvedNest(boreIn, effShW, nestOverrides).flueLengthIn
+    val effFlueDepth get() = ResolvedNest(boreIn, effShW, nestOverrides).flueDepthIn
     val effBreathW get() = breathHoleWidthIn ?: FluteConst.breathHoleWidth(boreIn)
     val effBreathL get() = breathHoleLengthIn ?: FluteConst.breathHoleLength(boreIn)
 }
